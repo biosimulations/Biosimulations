@@ -25,150 +25,34 @@
       display: inline;
     }
 
-    a {
+    a, .biosimulations-button {
       text-decoration: underline;
     }
   }
 }
 
-.subplots {
-  border: 1px solid rgba(0, 0, 0, 0.42);
-  border-radius: 4px;
-
-  ::ng-deep {
-    .mat-tab-header {
-      background-color: $light-bg-darker-10 !important;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.42);
-      border-top-left-radius: 4px;
-      border-top-right-radius: 4px;
-    }
-    .mat-tab-label {
-      &:not(.mat-tab-disabled) {
-        color: $dark-primary-text !important;
-      }
-      height: 41.5px;
-    }
-    .mat-ink-bar {
-      background-color: $dark-primary-text;
-    }
-
-    .mat-tab-body-wrapper {
-      min-height: auto;
-      padding: 0.5rem;
-    }
-  }
-}
-
-.curves {
-  padding-bottom: 1.34375em;
-
-  .input {
-    grid-template-columns: 1fr 1fr 1fr 1fr;
-  }
-
-  mat-hint {
-    padding-top: 0.4rem;
-    border-top: 1px solid rgba(0, 0, 0, 0.42);
-    font-size: 93.75%;
-    display: block;
-  }
-}
-
 .design-visualization {
   margin: 0 auto;
-}
+  overflow-y: hidden;
 
-.form-section {
-  .vega-map {
-    .form-field-group {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
-      column-gap: 0.25rem;
-      row-gap: 0.5rem;
-
-      &:not(:last-child) {
-        padding-bottom: 0;
-      }
-
-      ::ng-deep .mat-form-field-wrapper {
-        padding-bottom: 0;
-      }
-
-      ::ng-deep .mat-form-field-infix {
-        padding-top: 0;
-        border-top: none;
-      }
-
-      ::ng-deep .mat-form-field-label-wrapper {
-        display: none;
-      }
-
-      mat-label {
-        color: rgb(0, 0, 0, 0.6);
-        font-size: 75%;
-        line-height: 100%;
-      }
+  .user-2d-line-scatter-curves {
+    .input {
+      grid-template-columns: 1fr 1fr 1fr;
     }
 
     mat-hint {
       padding-top: 0.4rem;
+      border-top: 1px solid rgba(0, 0, 0, 0.42);
       font-size: 93.75%;
       display: block;
     }
   }
-}
 
-.vega-map ::ng-deep .form-field-group {
-  .mat-form-field-appearance-fill {
-    .mat-form-field-flex {
-      padding: 0.25rem 0;
-      height: auto;
+  .export-viz-button-container {
+    text-align: right;
+    button:not(:last-child) {
+      margin-right: 1rem;
     }
-
-    .mat-form-field-infix {
-      border-top: 0 solid transparent;
-      padding: 0.25rem 0.25rem 0;
-    }
-
-    .mat-form-field-subscript-wrapper {
-      padding-top: 0;
-    }
-
-    .mat-select-arrow-wrapper {
-      transform: translateY(-10%);
-    }
-
-    .mat-form-field-subscript-wrapper {
-      border-top: none;
-    }
-  }
-}
-
-.vega-map-head {
-  color: rgb(0, 0, 0, 0.6);
-  font-size: 93.75%;
-  line-height: 100%;
-}
-
-.vega-map-item-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding-top: 0.15rem;
-  border-bottom: 1px dotted rgba(0, 0, 0, 0.42);
-}
-
-.vega-map-item-content {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.42);
-}
-
-.sed-to-vega-arrow {
-  font-size: 150%;
-  position: relative;
-  top: 0.15rem;
-
-  &.vega-map-head {
-    top: -5px;
-    height: 0;
   }
 }
 

@@ -1,10 +1,13 @@
-<biosimulations-tab-page (selectedTabChange)="selectedTabChange($event)">
-  <biosimulations-tab-page-tab heading="Overview" icon="overview">
+<biosimulations-tab-page
+  [selectedTabIndex]="selectedTabIndex"
+  (selectedTabChange)="selectedTabChange($event)"
+>
+  <biosimulations-tab-page-tab heading="Simulation run" icon="overview">
     <div
       class="tab-spinner-container"
       *ngIf="(formattedSimulation$ | async) === null"
     >
-      <biosimulations-spinner> </biosimulations-spinner>
+      <biosimulations-spinner></biosimulations-spinner>
     </div>
     <ng-container *ngIf="formattedSimulation$ | async as simulation">
       <p>
@@ -418,7 +421,19 @@
                               identifier.label
                             }}</a
                             >: </span
-                          >{{ ' ' }}{{ other.uri }}
+                          >{{ ' ' }}
+                          <button
+                            *ngIf="other.click; else noButton"
+                            type="button"
+                            mat-icon-button
+                            (click)="other.click()"
+                            class="biosimulations-button text"
+                          >
+                            {{ other.uri }}
+                          </button>
+                          <ng-template #noButton>
+                            {{ other.uri }}
+                          </ng-template>
                         </td>
                       </tr>
                     </ng-container>
@@ -452,45 +467,50 @@
   </biosimulations-tab-page-tab>
 
   <biosimulations-tab-page-tab
-    heading="Design chart"
+    heading="Select chart"
     icon="write"
     urlHashFragment="design-viz"
+    [disabled]="(statusSucceeded$ | async) === false"
   >
     <form
-      [formGroup]="formGroup"
+      [formGroup]="visualizationFormGroup"
       class="partial-width design-visualization"
-      *ngIf="hasData; else noSedDatasets"
+      *ngIf="(visualizations$ | async)?.length; else noVisualizations"
     >
       <div class="form-section">
         <div class="form-section-body">
           <div class="form-field-group">
             <mat-form-field appearance="fill">
               <mat-label
-                >How would you like to visualize the results of your
-                simulation?</mat-label
+                >Select a chart</mat-label
               >
               <mat-select
-                formControlName="visualizationType"
+                formControlName="visualization"
                 required
-                (ngModelChange)="selectVisualizationType()"
+                (ngModelChange)="selectVisualization()"
                 disableOptionCentering
               >
                 <mat-option
-                  *ngFor="let visualizationType of visualizationTypes"
-                  [value]="visualizationType"
+                  *ngFor="let visualization of (visualizations$ | async)"
+                  [value]="visualization.id"
                 >
-                  {{ visualizationType }}
+                  {{ visualization.label }}
                 </mat-option>
               </mat-select>
               <biosimulations-icon icon="write" matPrefix></biosimulations-icon>
             </mat-form-field>
             <mat-hint>
               <p>
-                Choose to either use a simple form to design a two-dimensional
-                line or scatter plot, or upload any visualization in Vega format
-                <a href="https://vega.github.io/vega/" target="_blank"
+                Select a plot defined in a SED-ML or Vega <a href="https://vega.github.io/vega/" target="_blank"
                   ><biosimulations-icon icon="link"></biosimulations-icon></a
-                >.
+                > document in the simulation
+                project, or design a custom grid of plots.
+              </p>
+
+              <p>
+                SED-ML L1V3 provides basic capabilities for 2D line plots.
+                SED-ML L1V4 will provide capabilities for several additional types of plots.
+                We aim to support L1V4 once it is approved.
               </p>
 
               <p>
@@ -506,8 +526,112 @@
       </div>
 
       <ng-container
-        *ngIf="selectedVisualizationType === VisualizationType.lineScatter2d"
-        formGroupName="lineScatter2d"
+        *ngIf="selectedVisualization && selectedVisualization.type === 'user1DHistogram'"
+        formGroupName="user1DHistogram"
+      >
+         <div class="form-section">
+          <div class="form-section-head">
+            <div class="mat-form-field-prefix">
+              <biosimulations-icon icon="report"></biosimulations-icon>
+            </div>
+            <div class="form-section-head-title-subtitle">
+              <div class="form-section-title">Configure chart *</div>
+              <div class="form-section-subtitle">
+                Configure the data to plot.
+              </div>
+            </div>
+          </div>
+          <div class="form-section-body">
+            <div class="form-field-group">
+              <mat-form-field appearance="fill">
+                <mat-label>Select the data sets to plot</mat-label>
+
+                <mat-select
+                  formControlName="dataSets"
+                  required
+                  disableOptionCentering
+                  multiple
+                >
+                  <ng-container *ngFor="let sedDocument of (sedDocumentReportsConfiguration$ | async)">
+                    <mat-option
+                      [value]="sedDocument.location.path"
+                      (click)="setSelectedDataSets(
+                        user1DHistogramDataSetsFormControl,
+                        'SedDocument',
+                        sedDocument, sedDocument.location.path)
+                      "
+                    >
+                      {{ sedDocument.location.path }}
+                    </mat-option>
+
+                    <div
+                      *ngFor="let output of sedDocument.location.value.outputs"
+                      class="multi-select-opt-group"
+                    >
+                      <mat-option
+                        [value]="sedDocument.location.path + '/' + output.id"
+                        (click)="setSelectedDataSets(
+                          user1DHistogramDataSetsFormControl,
+                          'SedReport',
+                          sedDocument, sedDocument.location.path,
+                          output, output.id)
+                        "
+                      >
+                        {{ output.id }}
+                      </mat-option>
+
+                      <div class="multi-select-opt-group">
+                        <mat-option
+                          *ngFor="let dataset of output.dataSets"
+                          [value]="sedDocument.location.path + '/' + output.id + '/' + dataset.id"
+                          (click)="setSelectedDataSets(
+                            user1DHistogramDataSetsFormControl,
+                            'SedDataSet',
+                            sedDocument, sedDocument.location.path,
+                            output, output.id,
+                            dataset, dataset.id)
+                          "
+                        >
+                          {{ dataset.label }}
+                        </mat-option>
+                      </div>
+                    </div>
+                  </ng-container>
+                </mat-select>
+
+                <biosimulations-icon
+                  icon="report"
+                  matPrefix
+                ></biosimulations-icon>
+              </mat-form-field>
+              <mat-hint
+                >Select the SED-ML data sets to plot.</mat-hint
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="export-viz-button-container">
+          <button
+            type="button"
+            mat-flat-button
+            class="biosimulations-button text"
+            (click)="exportUserViz('vega')"
+            [disabled]="!userSimulationResults"
+          >Export to Vega</button>
+          <button
+            type="button"
+            mat-flat-button
+            class="biosimulations-button text"
+            (click)="exportUserViz('combine')"
+            [disabled]="!userSimulationResults"
+          >Export in archive</button>
+        </div>
+      </ng-container>
+
+      <ng-container
+        *ngIf="selectedVisualization && selectedVisualization.type === 'user2DHeatmap'"
+        formGroupName="user2DHeatmap"
       >
         <div class="form-section">
           <div class="form-section-head">
@@ -515,226 +639,289 @@
               <biosimulations-icon icon="report"></biosimulations-icon>
             </div>
             <div class="form-section-head-title-subtitle">
-              <div class="form-section-title">Subplot grid *</div>
+              <div class="form-section-title">Configure chart *</div>
               <div class="form-section-subtitle">
-                Select the numbers of rows and columns of sublots to display
+                Configure the data to plot.
               </div>
             </div>
           </div>
           <div class="form-section-body">
             <div class="form-field-group">
-              <div class="columns two-columns">
-                <mat-form-field appearance="fill">
-                  <mat-label>Rows</mat-label>
-                  <input
-                    matInput
-                    formControlName="rows"
-                    type="number"
-                    min="1"
-                    step="1"
-                    required
-                    (ngModelChange)="setVizGrid()"
-                  />
-                  <biosimulations-icon
-                    icon="report"
-                    matPrefix
-                  ></biosimulations-icon>
-                </mat-form-field>
+              <mat-form-field appearance="fill">
+                <mat-label>Select the data sets to plot</mat-label>
 
-                <mat-form-field appearance="fill">
-                  <mat-label>Columns</mat-label>
-                  <input
-                    matInput
-                    formControlName="cols"
-                    type="number"
-                    min="1"
-                    step="1"
-                    required
-                    (ngModelChange)="setVizGrid()"
-                  />
-                  <biosimulations-icon
-                    icon="report"
-                    matPrefix
-                  ></biosimulations-icon>
-                </mat-form-field>
-              </div>
+                <mat-select
+                  formControlName="yDataSets"
+                  required
+                  disableOptionCentering
+                  multiple
+                >
+                  <ng-container *ngFor="let sedDocument of (sedDocumentReportsConfiguration$ | async)">
+                    <mat-option
+                      [value]="sedDocument.location.path"
+                      (click)="setSelectedDataSets(
+                        user2DHeatmapYDataSetsFormControl,
+                        'SedDocument',
+                        sedDocument, sedDocument.location.path)
+                      "
+                    >
+                      {{ sedDocument.location.path }}
+                    </mat-option>
+
+                    <div
+                      *ngFor="let output of sedDocument.location.value.outputs"
+                      class="multi-select-opt-group"
+                    >
+                      <mat-option
+                        [value]="sedDocument.location.path + '/' + output.id"
+                        (click)="setSelectedDataSets(
+                          user2DHeatmapYDataSetsFormControl,
+                          'SedReport',
+                          sedDocument, sedDocument.location.path,
+                          output, output.id)
+                        "
+                      >
+                        {{ output.id }}
+                      </mat-option>
+
+                      <div class="multi-select-opt-group">
+                        <mat-option
+                          *ngFor="let dataset of output.dataSets"
+                          [value]="sedDocument.location.path + '/' + output.id + '/' + dataset.id"
+                          (click)="setSelectedDataSets(
+                            user2DHeatmapYDataSetsFormControl,
+                            'SedDataSet',
+                            sedDocument, sedDocument.location.path,
+                            output, output.id,
+                            dataset, dataset.id)
+                          "
+                        >
+                          {{ dataset.label }}
+                        </mat-option>
+                      </div>
+                    </div>
+                  </ng-container>
+                </mat-select>
+
+                <biosimulations-icon
+                  icon="report"
+                  matPrefix
+                ></biosimulations-icon>
+              </mat-form-field>
               <mat-hint
-                >runBioSimulations can display a grid of subplots. Select the
-                numbers of rows and columns of subplots that you would like to
-                display.</mat-hint
+                >Select the SED-ML data sets to plot.</mat-hint
+              >
+            </div>
+
+            <div class="form-field-group">
+              <mat-form-field appearance="fill">
+                <mat-label>Select the x labels for the selected data sets</mat-label>
+
+                <mat-select
+                  formControlName="xDataSet"
+                  required
+                  disableOptionCentering
+                  (ngModelChange)="displayUserViz()"
+                >
+                  <ng-container *ngFor="let sedDocument of (sedDocumentReportsConfiguration$ | async)">
+                    <mat-option
+                      [value]="sedDocument.location.path"
+                      [disabled]="true"
+                    >
+                      {{ sedDocument.location.path }}
+                    </mat-option>
+
+                    <div
+                      *ngFor="let output of sedDocument.location.value.outputs"
+                      class="multi-select-opt-group"
+                    >
+                      <mat-option
+                        [value]="sedDocument.location.path + '/' + output.id"
+                        [disabled]="true"
+                      >
+                        {{ output.id }}
+                      </mat-option>
+
+                      <div class="multi-select-opt-group">
+                        <mat-option
+                          *ngFor="let dataset of output.dataSets"
+                          [value]="sedDocument.location.path + '/' + output.id + '/' + dataset.id"
+                        >
+                          {{ dataset.label }}
+                        </mat-option>
+                      </div>
+                    </div>
+                  </ng-container>
+                </mat-select>
+
+                <biosimulations-icon
+                  icon="report"
+                  matPrefix
+                ></biosimulations-icon>
+              </mat-form-field>
+              <mat-hint
+                >Select the SED-ML data set that contains the labels for each element of the selected data sets.</mat-hint
               >
             </div>
           </div>
         </div>
 
-        <mat-tab-group
-          mat-align-tabs="start"
-          formArrayName="subplots"
-          class="subplots"
-        >
-          <mat-tab
-            *ngFor="
-              let subplot of lineScatter2dSubplotsFormArray.controls;
-              index as iSubplot
-            "
-          >
-            <ng-template matTabLabel>{{
-              subplot.get('label')?.value
-            }}</ng-template>
-            <ng-template matTabContent [formGroupName]="iSubplot">
-              <mat-form-field appearance="fill">
-                <mat-label
-                  >Choose whether to enable or disable the subplot</mat-label
-                >
-                <mat-select
-                  formControlName="enabled"
-                  required
-                  (ngModelChange)="build2dViz()"
-                  disableOptionCentering
-                >
-                  <mat-option
-                    *ngFor="let subplotEnabledType of subplotEnabledTypes"
-                    [value]="subplotEnabledType"
-                  >
-                    {{ subplotEnabledType }}
-                  </mat-option>
-                </mat-select>
-                <biosimulations-icon
-                  icon="visible"
-                  matPrefix
-                ></biosimulations-icon>
-                <mat-hint
-                  >Choose whether to enable or disable the subplot.</mat-hint
-                >
-              </mat-form-field>
+        <div class="export-viz-button-container">
+          <button
+            type="button"
+            mat-flat-button
+            class="biosimulations-button text"
+            (click)="exportUserViz('vega')"
+            [disabled]="!userSimulationResults"
+          >Export to Vega</button>
+          <button
+            type="button"
+            mat-flat-button
+            class="biosimulations-button text"
+            (click)="exportUserViz('combine')"
+            [disabled]="!userSimulationResults"
+          >Export in archive</button>
+        </div>
+      </ng-container>
 
+      <ng-container
+        *ngIf="selectedVisualization && selectedVisualization.type === 'user2DLineScatter'"
+        formGroupName="user2DLineScatter"
+      >
+        <div class="form-section">
+          <div class="form-section-head">
+            <div class="mat-form-field-prefix">
+              <biosimulations-icon icon="report"></biosimulations-icon>
+            </div>
+            <div class="form-section-head-title-subtitle">
+              <div class="form-section-title">Configure chart *</div>
+              <div class="form-section-subtitle">
+                Configure the data to plot, the axes, and visual style of the plot.
+              </div>
+            </div>
+          </div>
+          <div class="form-section-body">
+            <div class="form-field-group">
               <mat-form-field appearance="fill">
                 <mat-label>Select the number of curves to display</mat-label>
                 <input
                   matInput
                   formControlName="numCurves"
                   type="number"
-                  min="0"
+                  min="1"
                   step="1"
                   required
-                  (ngModelChange)="setNumCurves(iSubplot)"
+                  (ngModelChange)="setNum2DLineScatterCurves()"
                 />
                 <biosimulations-icon
                   icon="report"
                   matPrefix
                 ></biosimulations-icon>
-                <mat-hint
-                  >runBioSimulations can display one or more curves per
-                  subplots. Select the number of curves that you would like to
-                  display.</mat-hint
-                >
               </mat-form-field>
+              <mat-hint
+                >runBioSimulations can display one or more curves per
+                subplots. Select the number of curves that you would like to
+                display.</mat-hint
+              >
+            </div>
 
-              <div class="form-field-group curves" formArrayName="curves">
-                <div class="icon-label-input">
-                  <biosimulations-icon
-                    icon="report"
-                    matPrefix
-                  ></biosimulations-icon>
-                  <div class="label-input">
-                    <mat-label>Select the data for each curve *</mat-label>
-                    <div class="input">
-                      <div class="input-heading">Id</div>
-                      <div class="input-heading">Name</div>
-                      <div class="input-heading">X data set *</div>
-                      <div class="input-heading">Y data set *</div>
-                      <ng-container
-                        *ngFor="
-                          let curve of subplotCurves[iSubplot];
-                          index as iCurve
-                        "
-                        [formGroupName]="iCurve"
-                      >
-                        <div class="input-row">
-                          <input
-                            matInput
-                            formControlName="id"
-                            (ngModelChange)="build2dViz()"
-                          />
-                        </div>
-                        <div class="input-row">
-                          <input
-                            matInput
-                            formControlName="name"
-                            (ngModelChange)="build2dViz()"
-                          />
-                        </div>
-                        <div class="input-row">
-                          <mat-select
-                            formControlName="xData"
-                            required
-                            (ngModelChange)="build2dViz()"
-                            disableOptionCentering
+            <div class="form-field-group user-2d-line-scatter-curves" formArrayName="curves">
+              <div class="icon-label-input">
+                <biosimulations-icon
+                  icon="report"
+                  matPrefix
+                ></biosimulations-icon>
+                <div class="label-input">
+                  <mat-label>Select the data for each curve *</mat-label>
+                  <div class="input">
+                    <div class="input-heading">X data set *</div>
+                    <div class="input-heading">Y data set *</div>
+                    <div class="input-heading">Name</div>
+                    <ng-container
+                      *ngFor="
+                        let curve of user2DLineScatterCurvesFormGroups;
+                        index as iCurve
+                      "
+                      [formGroupName]="iCurve"
+                    >
+                      <div class="input-row">
+                        <mat-select
+                          formControlName="xData"
+                          required
+                          (ngModelChange)="displayUserViz()"
+                          disableOptionCentering
+                        >
+                          <mat-optgroup
+                            *ngFor="
+                              let sedDocument of (sedDocumentReportsConfiguration$ | async)
+                            "
+                            [label]="sedDocument.location.path"
                           >
                             <mat-optgroup
-                              *ngFor="
-                                let sedDocument of combineResultsStructure
-                              "
-                              [label]="sedDocument.location"
+                              *ngFor="let output of sedDocument.location.value.outputs"
+                              [label]="output.name || output.id"
                             >
-                              <mat-optgroup
-                                *ngFor="let report of sedDocument.reports"
-                                [label]="report.id"
+                              <mat-option
+                                *ngFor="let dataset of output.dataSets"
+                                [value]="sedDocument.location.path + '/' + output.id + '/' + dataset.id"
                               >
-                                <mat-option
-                                  *ngFor="let dataset of report.datasets"
-                                  [value]="dataset.uri"
-                                >
-                                  {{ dataset.label }}
-                                </mat-option>
-                              </mat-optgroup>
+                                {{ dataset.label }}
+                              </mat-option>
                             </mat-optgroup>
-                          </mat-select>
-                        </div>
-                        <div class="input-row">
-                          <mat-select
-                            formControlName="yData"
-                            required
-                            (ngModelChange)="build2dViz()"
-                            disableOptionCentering
+                          </mat-optgroup>
+                        </mat-select>
+                      </div>
+                      <div class="input-row">
+                        <mat-select
+                          formControlName="yData"
+                          required
+                          (ngModelChange)="displayUserViz()"
+                          disableOptionCentering
+                        >
+                          <mat-optgroup
+                            *ngFor="
+                              let sedDocument of (sedDocumentReportsConfiguration$ | async)
+                            "
+                            [label]="sedDocument.location.path"
                           >
                             <mat-optgroup
-                              *ngFor="
-                                let sedDocument of combineResultsStructure$
-                                  | async
-                              "
-                              [label]="sedDocument.location"
+                              *ngFor="let output of sedDocument.location.value.outputs"
+                              [label]="output.name || output.id"
                             >
-                              <mat-optgroup
-                                *ngFor="let report of sedDocument.reports"
-                                [label]="report.id"
+                              <mat-option
+                                *ngFor="let dataset of output.dataSets"
+                                [value]="sedDocument.location.path + '/' + output.id + '/' + dataset.id"
                               >
-                                <mat-option
-                                  *ngFor="let dataset of report.datasets"
-                                  [value]="dataset.uri"
-                                >
-                                  {{ dataset.label }}
-                                </mat-option>
-                              </mat-optgroup>
+                                {{ dataset.label }}
+                              </mat-option>
                             </mat-optgroup>
-                          </mat-select>
-                        </div>
-                      </ng-container>
-                    </div>
+                          </mat-optgroup>
+                        </mat-select>
+                      </div>
+                      <div class="input-row">
+                        <input
+                          matInput
+                          formControlName="name"
+                          (ngModelChange)="displayUserViz()"
+                        />
+                      </div>
+                    </ng-container>
                   </div>
                 </div>
-                <mat-hint
-                  >Select the SED data sets for the X and Y data of each
-                  curve.</mat-hint
-                >
               </div>
+              <mat-hint
+                >Select the SED data sets for the X and Y data of each
+                curve.</mat-hint
+              >
+            </div>
 
+            <div class="form-field-group">
               <mat-form-field appearance="fill">
                 <mat-label>Select a scale for the x-axis</mat-label>
                 <mat-select
                   formControlName="xAxisType"
                   required
-                  (ngModelChange)="build2dViz()"
+                  (ngModelChange)="displayUserViz()"
                   disableOptionCentering
                 >
                   <mat-option
@@ -748,17 +935,19 @@
                   icon="visualization"
                   matPrefix
                 ></biosimulations-icon>
-                <mat-hint
-                  >Select a scale such as "linear" or "logarithmic".</mat-hint
-                >
               </mat-form-field>
+              <mat-hint
+                >Select a scale such as "linear" or "logarithmic".</mat-hint
+              >
+            </div>
 
+            <div class="form-field-group">
               <mat-form-field appearance="fill">
                 <mat-label>Select a scale for the y-axis</mat-label>
                 <mat-select
                   formControlName="yAxisType"
                   required
-                  (ngModelChange)="build2dViz()"
+                  (ngModelChange)="displayUserViz()"
                   disableOptionCentering
                 >
                   <mat-option
@@ -772,192 +961,71 @@
                   icon="visualization"
                   matPrefix
                 ></biosimulations-icon>
-                <mat-hint
-                  >Select a scale such as "linear" or "logarithmic".</mat-hint
-                >
               </mat-form-field>
+              <mat-hint
+                >Select a scale such as "linear" or "logarithmic".</mat-hint
+              >
+            </div>
 
+            <div class="form-field-group">
               <mat-form-field appearance="fill">
                 <mat-label>Select a type of plot</mat-label>
                 <mat-select
-                  formControlName="scatterTraceMode"
+                  formControlName="traceMode"
                   required
-                  (ngModelChange)="build2dViz()"
+                  (ngModelChange)="displayUserViz()"
                   disableOptionCentering
                 >
                   <mat-option
-                    *ngFor="let scatterTraceModeLabel of scatterTraceModeLabels"
-                    [value]="scatterTraceModeLabel.mode"
+                    *ngFor="let traceModeLabel of traceModeLabels"
+                    [value]="traceModeLabel.mode"
                   >
-                    {{ scatterTraceModeLabel.label }}
+                    {{ traceModeLabel.label }}
                   </mat-option>
                 </mat-select>
                 <biosimulations-icon
                   icon="visualization"
                   matPrefix
                 ></biosimulations-icon>
-                <mat-hint
-                  >Select a type of plot such as "line" or "scatter".</mat-hint
-                >
               </mat-form-field>
-            </ng-template>
-          </mat-tab>
-        </mat-tab-group>
-      </ng-container>
-
-      <ng-container
-        *ngIf="selectedVisualizationType === VisualizationType.vega"
-        formGroupName="vega"
-      >
-        <div class="form-section">
-          <div class="form-section-body">
-            <div class="form-field-group">
-              <mat-form-field appearance="fill">
-                <biosimulations-icon
-                  icon="project"
-                  matPrefix
-                ></biosimulations-icon>
-                <mat-label>Select a Vega file</mat-label>
-                <ngx-mat-file-input
-                  formControlName="vegaFile"
-                  accept=".json"
-                  [multiple]="false"
-                  [required]="true"
-                  placeholder="Vega file"
-                ></ngx-mat-file-input>
-              </mat-form-field>
-              <mat-hint>
-                Select a Vega file. Information about the Vega format is here
-                <a href="https://vega.github.io/vega/" target="_blank"
-                  ><biosimulations-icon icon="link"></biosimulations-icon></a
-                >. Guidelines for using Vega to visualize simulation results are
-                available here
-                <a
-                  href="https://biosimulators.org/conventions/data-viz"
-                  target="_blank"
-                  ><biosimulations-icon icon="link"></biosimulations-icon></a
-                >. Example visualizations for simulation predictions are
-                available here
-                <a
-                  href="https://github.com/biosimulators/Biosimulators_test_suite/tree/dev/examples"
-                  target="_blank"
-                  ><biosimulations-icon icon="link"></biosimulations-icon></a
-                >.
-              </mat-hint>
-              <mat-error
-                *ngIf="
-                  vegaFileFormControl.touched && !vegaFileFormControl.valid
-                "
+              <mat-hint
+                >Select a type of plot such as "line" or "scatter".</mat-hint
               >
-                The selected file is not a syntactically valid Vega document.
-              </mat-error>
             </div>
           </div>
         </div>
 
-        <div
-          *ngIf="vegaDataSetSedmlLocationReportIdsFormArray.controls.length"
-          class="form-section"
-        >
-          <div class="form-section-head">
-            <div class="mat-form-field-prefix">
-              <biosimulations-icon icon="report"></biosimulations-icon>
-            </div>
-            <div class="form-section-head-title-subtitle">
-              <div class="form-section-title">
-                Map the results of the simulation to the visualization *
-              </div>
-              <div class="form-section-subtitle">
-                Map SED reports to the data sets of the Vega visualization
-              </div>
-            </div>
-          </div>
-          <div class="form-section-body vega-map">
-            <div
-              formArrayName="vegaDataSetSedmlLocationReportIds"
-              class="form-field-group"
-            >
-              <ng-container>
-                <div class="vega-map-head">SED report</div>
-                <biosimulations-icon
-                  icon="longRightArrow"
-                  class="vega-map-head sed-to-vega-arrow"
-                ></biosimulations-icon>
-                <div class="vega-map-head">Vega data set</div>
-              </ng-container>
-
-              <ng-container
-                *ngFor="
-                  let vegaDataSetSedmlLocationReportId of vegaDataSetSedmlLocationReportIdsFormArray.controls;
-                  index as iVegaDataSetSedReport;
-                  last as isLast
-                "
-              >
-                <mat-form-field appearance="fill" class="vega-map-item-content">
-                  <mat-select
-                    [formControlName]="iVegaDataSetSedReport"
-                    required
-                    (ngModelChange)="buildVegaVizData()"
-                    disableOptionCentering
-                  >
-                    <mat-option
-                      *ngFor="
-                        let sedmlLocationsReportId of sedmlLocationsReportIds$
-                          | async
-                      "
-                      [value]="sedmlLocationsReportId.uri"
-                    >
-                      {{ sedmlLocationsReportId.label }}
-                    </mat-option>
-                  </mat-select>
-                </mat-form-field>
-
-                <biosimulations-icon
-                  icon="longRightArrow"
-                  class="sed-to-vega-arrow"
-                ></biosimulations-icon>
-
-                <div
-                  class="vega-map-item-label"
-                  [title]="vegaDataSets[iVegaDataSetSedReport].name"
-                >
-                  {{ vegaDataSets[iVegaDataSetSedReport].name }}
-                </div>
-              </ng-container>
-            </div>
-            <mat-hint>
-              To paint Vega diagrams with simulation results, select the
-              simulation output (SED-ML report) that should be mapped to each
-              input of the diagram (Vega data set).
-            </mat-hint>
-          </div>
+        <div class="export-viz-button-container">
+          <button
+            type="button"
+            mat-flat-button
+            class="biosimulations-button text"
+            (click)="exportUserViz('vega')"
+            [disabled]="!userSimulationResults"
+          >Export to Vega</button>
+          <button
+            type="button"
+            mat-flat-button
+            class="biosimulations-button text"
+            (click)="exportUserViz('combine')"
+            [disabled]="!userSimulationResults"
+          >Export in archive</button>
         </div>
       </ng-container>
     </form>
 
-    <ng-template #noSedDatasets>
+    <ng-template #noVisualizations>
       <div
         class="tab-spinner-container"
-        *ngIf="gettingResultsStructure; else noDataOrError"
+        *ngIf="(visualizations$ | async) === undefined; else error"
       >
         <biosimulations-spinner></biosimulations-spinner>
       </div>
-      <ng-template #noDataOrError>
+      <ng-template #error>
         <span
           class="info-message"
-          *ngIf="
-            (this.combineResultsStructure$ | async) !== undefined;
-            else resultsError
-          "
-          >The execution of the COMBINE/OMEX archive did not generate any data.
-          runBioSimulations visualizes simulation results outputted via data
-          sets of SED reports.</span
+          >Sorry! The visualizations for the project could not be retrieved.</span
         >
-        <ng-template #resultsError>
-          <span class="info-message"
-            >Sorry! The results of your simulation could not be retrieved.</span
-          >
-        </ng-template>
       </ng-template>
     </ng-template>
   </biosimulations-tab-page-tab>
@@ -967,44 +1035,19 @@
     icon="chart"
     urlHashFragment="viz"
     [fullHeight]="true"
-    [disabled]="
-      !gettingResults &&
-      ((selectedVisualizationType === VisualizationType.lineScatter2d &&
-        !lineScatter2dValid) ||
-        (selectedVisualizationType === VisualizationType.vega &&
-          (vegaSpec$ | async) === null))
-    "
+    [disabled]="!selectedVisualization"
   >
-    <div
-      class="tab-spinner-container"
-      *ngIf="
-        gettingResults &&
-        ((selectedVisualizationType === VisualizationType.lineScatter2d &&
-          !lineScatter2dValid) ||
-          (selectedVisualizationType === VisualizationType.vega &&
-            (vegaSpec$ | async) === null))
-      "
-    >
-      <biosimulations-spinner> </biosimulations-spinner>
-    </div>
-
-    <biosimulations-plotly-visualization
-      [dataLayout]="vizDataLayout$ | async"
-      *ngIf="
-        !gettingResults &&
-        selectedVisualizationType === VisualizationType.lineScatter2d
-      "
-    >
-    </biosimulations-plotly-visualization>
-
     <biosimulations-vega-visualization
-      *ngIf="
-        !gettingResults && selectedVisualizationType === VisualizationType.vega
-      "
-      [spec]="vegaSpec$"
-      (error)="vegaErrorHandler()"
+      *ngIf="selectedVisualization && selectedVisualization.renderer === 'vega'"
+      [spec]="selectedVisualization.vegaSpec"
     >
     </biosimulations-vega-visualization>
+
+    <biosimulations-plotly-visualization
+      *ngIf="selectedVisualization && selectedVisualization.renderer === 'plotly'"
+      [dataLayout]="plotlyVizDataLayout$ | async"
+    >
+    </biosimulations-plotly-visualization>
   </biosimulations-tab-page-tab>
 
   <biosimulations-tab-page-tab

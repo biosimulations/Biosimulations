@@ -1,7 +1,7 @@
 import { SimulationRunStatus } from '@biosimulations/datamodel/common';
 import {
   AxisType,
-  ScatterTraceMode,
+  TraceMode,
 } from './plotly-visualization/plotly-visualization.component';
 export interface FormattedSimulation {
   id: string;
@@ -41,18 +41,18 @@ export const AXIS_LABEL_TYPES: AxisLabelType[] = [
   },
 ];
 
-export interface ScatterTraceModeLabel {
+export interface TraceModeLabel {
   label: string;
-  mode: ScatterTraceMode;
+  mode: TraceMode;
 }
 
-export const SCATTER_TRACE_MODEL_LABELS: ScatterTraceModeLabel[] = [
+export const TRACE_MODE_LABELS: TraceModeLabel[] = [
   {
     label: 'Line',
-    mode: ScatterTraceMode.lines,
+    mode: TraceMode.lines,
   },
   {
     label: 'Scatter',
-    mode: ScatterTraceMode.markers,
+    mode: TraceMode.markers,
   },
 ];

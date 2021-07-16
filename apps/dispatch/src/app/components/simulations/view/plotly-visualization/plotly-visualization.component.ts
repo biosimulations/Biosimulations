@@ -5,18 +5,27 @@ export enum AxisType {
   log = 'log',
 }
 
-export enum ScatterTraceMode {
+export enum TraceMode {
   lines = 'lines',
   markers = 'markers',
 }
 
-export interface ScatterTrace {
-  name: string;
-  x: (number | boolean | string)[];
-  y: (number | boolean | string)[];
-  xaxis: string;
-  yaxis: string;
-  mode: ScatterTraceMode;
+export enum TraceType {
+  scatter = 'scatter',
+  histogram = 'histogram',
+  heatmap = 'heatmap',
+}
+
+export interface Trace {
+  name?: string;
+  x?: any[];
+  y?: any[];
+  z?: any[];
+  xaxis?: string;
+  yaxis?: string;
+  type: TraceType;
+  mode?: TraceMode;
+  hoverongaps?: boolean;
 }
 
 export interface Axis {
@@ -40,7 +49,7 @@ export interface Layout {
 }
 
 export interface DataLayout {
-  data: ScatterTrace[];
+  data: Trace[];
   layout: Layout;
 }
 
@@ -50,7 +59,8 @@ export interface DataLayout {
   styleUrls: ['./plotly-visualization.component.scss'],
 })
 export class PlotlyVisualizationComponent {
-  data: ScatterTrace[] | undefined = undefined;
+  loading = false;
+  data: Trace[] | undefined = undefined;
   layout: Layout | undefined = undefined;
   config: any = {
     scrollZoom: true,
@@ -67,12 +77,25 @@ export class PlotlyVisualizationComponent {
     plotlyServerURL: 'https://chart-studio.plotly.com',
     // responsive: true,
   };
+  error = false;
 
   @Input()
-  set dataLayout(value: DataLayout | null) {
-    this.data = value?.data;
-    this.layout = value?.layout;
-    this.setLayout();
+  set dataLayout(value: DataLayout | null | false) {
+    if (value) {
+      this.loading = false;
+      this.data = value.data;
+      this.layout = value.layout;
+      this.error = false;
+      this.setLayout();
+
+    } else if (value == null) {
+      this.loading = true;
+      this.error = false;
+
+    } else {
+      this.loading = false;
+      this.error = true;
+    }
   }
 
   visible = false;

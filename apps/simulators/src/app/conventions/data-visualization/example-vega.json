@@ -1,0 +1,22 @@
+{
+  "signals": [
+    {
+      "name": "Regular Vega signal",
+      "value": 2
+    },
+    {
+      "name": "Vega signal whose value should be rendered with the value of an attribute of a simulation of a SED-ML document",
+      "sedmlUri": ["simulation_1.sedml", "simulation_1", "numberOfSteps"]
+    }
+  ],
+  "data": [
+    {
+      "name": "Regular Vega data set, such as for data for visual marks",
+      "values": []
+    },
+    {
+      "name": "Vega data set whose value should be rendered with the result of a report of a SED-ML document",
+      "sedmlUri": ["simulation.sedml", "reportId"]
+    }
+  ]
+}

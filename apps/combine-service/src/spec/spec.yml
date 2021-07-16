@@ -15,9 +15,9 @@ info:
     url: https://opensource.org/licenses/MIT
 servers:
 - url: https://combine.api.biosimulations.dev
-  description: Development Server
+  description: Development server
 - url: https://combine.api.biosimulations.org
-  description: Production Server
+  description: Production server
 paths:
   /sed-ml/get-parameters-variables-for-simulation:
     post:
@@ -382,6 +382,71 @@ paths:
       operationId: src.handlers.combine.get_file.handler
       summary: Get a file in a COMBINE/OMEX archive
       description: Get a file at a location in a COMBINE/OMEX archive.
+  /combine/manifest:
+    post:
+      requestBody:
+        description: COMBINE/OMEX archive file or URL for a COMBINE/OMEX archive file.
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FileOrUrl'
+            examples:
+              File:
+                value:
+                  file: <FILE>
+              URL:
+                value:
+                  url: https://models.org/archive.omex
+        required: true
+      tags:
+      - COMBINE
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CombineArchive'
+              examples:
+                Example specifications of a COMBINE archive:
+                  value:
+                    _type: CombineArchive
+                    contents:
+                    - _type: CombineArchiveContent
+                      location:
+                        _type: CombineArchiveLocation
+                        path: experiment1/model.xml
+                        value:
+                          _type: CombineArchiveContentFile
+                          filename: model.xml
+                      format: http://identifiers.org/combine.specifications/sbml
+                      master: false
+                    - _type: CombineArchiveContent
+                      location:
+                        _type: CombineArchiveLocation
+                        path: experiment1/simulation.sedml
+                        value:
+                          _type: CombineArchiveContentUrl
+                          url: https://simulation.org/simulation.sedml
+                      format: http://identifiers.org/combine.specifications/sed-ml
+                      master: true
+          description: Specifications of the SED-ML files in the COMBINE/OMEX archive.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: Unable to get the specifications of the SED outputs for COMBINE/OMEX
+            archive because the URL is unavailable or the URL is not a valid COMBINE/OMEX
+            archive.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: Server error.
+      operationId: src.handlers.combine.get_manifest.handler
+      summary: Get the specifications of the SED-ML files in a COMBINE/OMEX archive
+      description: Get the specifications of the SED-ML files in a COMBINE/OMEX archive
   /combine/create:
     post:
       requestBody:

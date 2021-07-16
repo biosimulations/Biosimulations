@@ -50,6 +50,7 @@ export class TabPageComponent implements AfterViewInit, AfterViewChecked {
   @ContentChildren(TabPageTabComponent, { descendants: true })
   tabs!: QueryList<TabPageTabComponent>;
 
+  @Input()
   selectedTabIndex = 0;
 
   ngAfterViewInit(): void {

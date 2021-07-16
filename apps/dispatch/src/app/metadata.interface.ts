@@ -1,6 +1,6 @@
 export interface MetadataValue {
   label: string | null;
-  uri: string | null;
+  uri: string | null;  
 }
 
 export interface CustomMetadata {
@@ -30,4 +30,5 @@ export interface CombineArchiveElementMetadata {
   funders: MetadataValue[];
   created: string;
   modified: string[];
+  click?: () => void;
 }

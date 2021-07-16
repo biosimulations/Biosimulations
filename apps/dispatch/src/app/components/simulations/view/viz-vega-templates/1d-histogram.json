@@ -1,0 +1,279 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "Kernel density plot",
+  "width": 400,
+  "height": 200,
+  "padding": 0,
+
+  "signals": [{
+      "name": "kdeExtent",
+      "value": null
+    },
+    {
+      "name": "kdeMinSteps",
+      "value": 200
+    },
+    {
+      "name": "kdeMaxSteps",
+      "value": 1000
+    },
+    {
+      "name": "xScaleZero",
+      "value": false
+    },
+    {
+      "name": "yScaleZero",
+      "value": true
+    },
+    {
+      "name": "xScaleTickCount",
+      "value": 5
+    },
+    {
+      "name": "yScaleTickCount",
+      "value": 5
+    },
+    {
+      "name": "xAxisTitle",
+      "value": "X axis title"
+    },
+    {
+      "name": "yAxisTitle",
+      "value": "Frequency"
+    },
+    {
+      "name": "axesWidth",
+      "value": 38
+    },
+    {
+      "name": "axesHeight",
+      "value": 38
+    },
+
+    {
+      "name": "hover",
+      "value": null,
+      "on": [{
+          "events": "symbol:mouseover",
+          "update": "datum"
+        },
+        {
+          "events": "symbol:mouseout",
+          "update": "null"
+        }
+      ]
+    }
+  ],
+
+  "data": [{
+      "name": "rawData0",
+      "sedmlUri": ["location/of/simulation.sedml", "idOfReport"]
+    },
+    {
+      "name": "rawData0_filtered",
+      "source": "rawData0",
+      "transform": [{
+        "type": "filter",
+        "expr": "indexof(['data_set_time'], datum.id) !== -1"
+      }]
+    },
+    {
+      "name": "kde",
+      "source": ["rawData0_filtered"],
+      "transform": [{
+          "type": "flatten",
+          "fields": ["values"]
+        },
+        {
+          "type": "kde",
+          "field": "values",
+          "extent": {
+            "signal": "kdeExtent"
+          },
+          "minsteps": {
+            "signal": "kdeMinSteps"
+          },
+          "maxsteps": {
+            "signal": "kdeMaxSteps"
+          },
+          "as": ["value", "freq"]
+        }
+      ]
+    }
+  ],
+
+  "scales": [{
+      "name": "xScale",
+      "type": "linear",
+      "domain": {
+        "data": "kde",
+        "field": "value"
+      },
+      "zero": {
+        "signal": "xScaleZero"
+      },
+      "range": [0, {
+        "signal": "width - axesWidth"
+      }]
+    },
+    {
+      "name": "yScale",
+      "type": "linear",
+      "domain": {
+        "data": "kde",
+        "field": "freq"
+      },
+      "zero": {
+        "signal": "yScaleZero"
+      },
+      "range": [{
+        "signal": "height - axesHeight"
+      }, 0]
+    }
+  ],
+
+  "axes": [{
+      "orient": "bottom",
+      "scale": "xScale",
+      "tickCount": {
+        "signal": "xScaleTickCount"
+      },
+      "title": {
+        "signal": "xAxisTitle"
+      },
+      "offset": {
+        "signal": "-axesHeight"
+      }
+    },
+    {
+      "orient": "left",
+      "scale": "yScale",
+      "tickCount": {
+        "signal": "yScaleTickCount"
+      },
+      "title": {
+        "signal": "yAxisTitle"
+      },
+      "offset": {
+        "signal": "0"
+      }
+    }
+  ],
+
+  "marks": [{
+      "type": "line",
+      "from": {
+        "data": "kde"
+      },
+      "encode": {
+        "enter": {
+          "x": {
+            "scale": "xScale",
+            "field": "value"
+          },
+          "y": {
+            "scale": "yScale",
+            "field": "freq"
+          },
+          "stroke": {
+            "value": "gray"
+          }
+        }
+      }
+    },
+    {
+      "type": "symbol",
+      "from": {
+        "data": "kde"
+      },
+      "encode": {
+        "enter": {
+          "x": {
+            "scale": "xScale",
+            "field": "value"
+          },
+          "y": {
+            "scale": "yScale",
+            "field": "freq"
+          },
+          "size": {
+            "value": 64
+          },
+          "fillOpacity": {
+            "value": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "rule",
+      "encode": {
+        "enter": {
+          "x": {
+            "scale": "xScale",
+            "value": "0"
+          },
+          "stroke": {
+            "value": "gray"
+          }
+        },
+        "update": {
+          "x2": {
+            "scale": "xScale",
+            "signal": "hover == null ? 0 : hover.value"
+          },
+          "y": {
+            "scale": "yScale",
+            "signal": "hover == null ? 0 : hover.freq"
+          },
+          "y2": {
+            "scale": "yScale",
+            "signal": "hover == null ? 0 : hover.freq"
+          },
+          "strokeWidth": [0.5],
+          "strokeDash": {
+            "value": [2, 2]
+          },
+          "opacity": {
+            "signal": "hover == null ? 0 : 1"
+          }
+        }
+      }
+    },
+    {
+      "type": "rule",
+      "encode": {
+        "enter": {
+          "y": {
+            "scale": "yScale",
+            "value": "0"
+          },
+          "stroke": {
+            "value": "gray"
+          }
+        },
+        "update": {
+          "x": {
+            "scale": "xScale",
+            "signal": "hover == null ? 0 : hover.value"
+          },
+          "x2": {
+            "scale": "xScale",
+            "signal": "hover == null ? 0 : hover.value"
+          },
+          "y2": {
+            "scale": "yScale",
+            "signal": "hover == null ? 0 : hover.freq"
+          },
+          "strokeWidth": [0.5],
+          "strokeDash": {
+            "value": [2, 2]
+          },
+          "opacity": {
+            "signal": "hover == null ? 0 : 1"
+          }
+        }
+      }
+    }
+  ]
+}

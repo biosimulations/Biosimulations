@@ -23,8 +23,7 @@ import requests.exceptions
 
 
 def handler(body, file=None):
-    ''' Get a SED report for a SED task that will record all of the
-    possible observables of the task
+    ''' Get the specifications of the SED-ML files in a COMBINE/OMEX arvhive
 
     Args:
         body (:obj:`dict`): dictionary with keys
@@ -35,8 +34,8 @@ def handler(body, file=None):
         file (:obj:`werkzeug.datastructures.FileStorage`, optional): COMBINE/OMEX archive file
 
     Returns:
-        ``#/components/schemas/CombineArchive``: specifications of the SED
-            plots in a COMBINE/OMEX archive
+        ``#/components/schemas/CombineArchive``: specifications of the SED-ML
+            files in the COMBINE/OMEX archive
     '''
     archive_file = file
     archive_url = body.get('url', None)

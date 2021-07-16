@@ -1,10 +1,15 @@
-<div *ngIf="data === undefined" class="spinner-container">
-  <biosimulations-spinner> </biosimulations-spinner>
-</div>
 <plotly-plot
-  *ngIf="data !== undefined"
+  *ngIf="!loading && !error"
   [data]="data"
   [layout]="layout"
   [config]="config"
   [useResizeHandler]="visible"
 ></plotly-plot>
+
+<div *ngIf="loading" class="centered-full-width-height">
+  <biosimulations-spinner></biosimulations-spinner>
+</div>
+
+<div *ngIf="error" class="info-message">
+  Sorry! The data for the plot could not be loaded.
+</div>

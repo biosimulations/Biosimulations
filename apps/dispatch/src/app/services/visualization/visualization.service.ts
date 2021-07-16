@@ -6,11 +6,11 @@ import { urls } from '@biosimulations/config/common';
 import {
   CombineResults,
   SedDocumentResults,
-  SedReportResults,
+  SedOutputResults,
   SedDatasetResults,
   SedDatasetResultsMap,
 } from '../../datamodel';
-import { CombineArchive } from '../../combine-sedml.interface';
+import { CombineArchive, CombineArchiveContent } from '../../combine-sedml.interface';
 
 import {
   SimulationRunOutput,
@@ -26,6 +26,7 @@ import { CombineService } from '../combine/combine.service';
 export class VisualizationService {
   private combineArchiveEndpoint = `${urls.dispatchApi}run/`;
   private resultsEndpoint = `${urls.dispatchApi}results`;
+
   public constructor(
     private http: HttpClient,
     private combineService: CombineService,
@@ -33,43 +34,45 @@ export class VisualizationService {
 
   public getCombineResultsStructure(
     uuid: string,
+    outputId = '',
     sparse = true,
   ): Observable<CombineResults | undefined> {
     const retryStrategy = new RetryStrategy();
+    // TODO Remove hardcoded string. Caused #2635
+    const url = outputId
+      ? `${this.resultsEndpoint}/${uuid}/${encodeURIComponent(outputId)}?includeData=${!sparse}`
+      : `${this.resultsEndpoint}/${uuid}?includeData=${!sparse}`;
     return this.http
-      .get<SimulationRunResults>(
-        // TODO Remove hardocoded string. Caused #2635
-        `${this.resultsEndpoint}/${uuid}?includeData=${!sparse}`,
-      )
+      .get<SimulationRunOutput | SimulationRunResults>(url)
       .pipe(
         retryWhen(retryStrategy.handler.bind(retryStrategy)),
-        map(
-          (result: SimulationRunResults): SimulationRunOutput[] =>
-            result.outputs,
-        ),
-        map((reports: SimulationRunOutput[]): CombineResults => {
+        map((result: SimulationRunOutput | SimulationRunResults): CombineResults => {
+          const outputs = outputId
+            ? [result as SimulationRunOutput]
+            : (result as SimulationRunResults).outputs;
+
           const structureObject: any = {};
-          reports.forEach((report: SimulationRunOutput): void => {
-            const sedmlLocationReportId = report.outputId;
-            const sedmlLocation = sedmlLocationReportId
+          outputs.forEach((output: SimulationRunOutput): void => {
+            const sedmlLocationOutputId = output.outputId;
+            const sedmlLocation = sedmlLocationOutputId
               .split('/')
               .reverse()
               .slice(1)
               .reverse()
               .join('/');
-            const reportId = sedmlLocationReportId.split('/').reverse()[0];
+            const outputId = sedmlLocationOutputId.split('/').reverse()[0];
 
             if (!structureObject?.[sedmlLocation]) {
               structureObject[sedmlLocation] = {};
             }
 
-            structureObject[sedmlLocation][reportId] = report.data.map(
+            structureObject[sedmlLocation][outputId] = output.data.map(
               (datum: SimulationRunOutputDatum): SedDatasetResults => {
                 return {
-                  uri: sedmlLocation + '/' + reportId + '/' + datum.id,
+                  uri: sedmlLocation + '/' + outputId + '/' + datum.id,
                   id: datum.id,
                   location: sedmlLocation,
-                  reportId: reportId,
+                  outputId: outputId,
                   label: datum.label,
                   values: datum.values,
                 };
@@ -83,15 +86,15 @@ export class VisualizationService {
           });
           const structureArray = sedmlLocations.map(
             (sedmlLocation: string): SedDocumentResults => {
-              const reportIds = Object.keys(structureObject[sedmlLocation]);
+              const outputIds = Object.keys(structureObject[sedmlLocation]);
               return {
                 uri: sedmlLocation,
                 location: sedmlLocation,
-                reports: reportIds.map((reportId: string): SedReportResults => {
-                  const datasets = structureObject[sedmlLocation][reportId];
+                outputs: outputIds.map((outputId: string): SedOutputResults => {
+                  const datasets = structureObject[sedmlLocation][outputId];
                   return {
-                    uri: sedmlLocation + '/' + reportId,
-                    id: reportId,
+                    uri: sedmlLocation + '/' + outputId,
+                    id: outputId,
                     datasets: datasets,
                   };
                 }),
@@ -121,41 +124,43 @@ export class VisualizationService {
 
   public getCombineResults(
     uuid: string,
+    outputId = '',
     sparse = false,
   ): Observable<SedDatasetResultsMap | undefined> {
     const retryStrategy = new RetryStrategy();
+    // TODO Remove hardcoded string. Caused #2635
+    const url = outputId
+      ? `${this.resultsEndpoint}/${uuid}/${encodeURIComponent(outputId)}?includeData=${!sparse}`
+      : `${this.resultsEndpoint}/${uuid}?includeData=${!sparse}`;
     return this.http
-      .get<SimulationRunResults>(
-        // TODO Remove hardocoded string. Caused #2635
-        `${this.resultsEndpoint}/${uuid}?includeData=${!sparse}`,
-      )
+      .get<SimulationRunOutput | SimulationRunResults>(url)
       .pipe(
         retryWhen(retryStrategy.handler.bind(retryStrategy)),
-        map(
-          (result: SimulationRunResults): SimulationRunOutput[] =>
-            result.outputs,
-        ),
-        map((reports: SimulationRunOutput[]): SedDatasetResultsMap => {
+        map((result: SimulationRunOutput | SimulationRunResults): SedDatasetResultsMap => {
+          const outputs = outputId
+            ? [result as SimulationRunOutput]
+            : (result as SimulationRunResults).outputs;
+
           const datasetResultsMap: SedDatasetResultsMap = {};
 
-          reports.forEach((report: SimulationRunOutput): void => {
-            const sedmlLocationReportId = report.outputId;
+          outputs.forEach((output: SimulationRunOutput): void => {
+            const sedmlLocationOutputId = output.outputId;
 
             const sedmlLocation = this.getLocationFromSedmLocationId(
-              sedmlLocationReportId,
+              sedmlLocationOutputId,
             );
 
-            const reportId = this.getReportIdFromSedmlLocationId(
-              sedmlLocationReportId,
+            const outputId = this.getOutputIdFromSedmlLocationId(
+              sedmlLocationOutputId,
             );
 
-            report.data.forEach((datum: SimulationRunOutputDatum): void => {
-              const uri = sedmlLocation + '/' + reportId + '/' + datum.id;
+            output.data.forEach((datum: SimulationRunOutputDatum): void => {
+              const uri = sedmlLocation + '/' + outputId + '/' + datum.id;
               datasetResultsMap[uri] = {
                 uri: uri,
                 id: datum.id,
                 location: sedmlLocation,
-                reportId: reportId,
+                outputId: outputId,
                 label: datum.label,
                 values: datum.values,
               };
@@ -180,25 +185,37 @@ export class VisualizationService {
     // TODO write tests
     return locationId.split('/').reverse().slice(1).reverse().join('/');
   }
-  public getReportIdFromSedmlLocationId(location: string): string {
+  public getOutputIdFromSedmlLocationId(location: string): string {
     return location.split('/').reverse()[0];
   }
-  public getReportResultsUrl(
+  public getOutputResultsUrl(
     runId: string,
-    reportId: string,
+    outputId: string,
     sparse = false,
   ): string {
-    // TODO Remove hardocoded string. Caused #2635
+    // TODO Remove hardcoded string. Caused #2635
     return `${
       this.resultsEndpoint
-    }/${runId}/${reportId}?includeData=${!sparse}`;
+    }/${runId}/${encodeURIComponent(outputId)}?includeData=${!sparse}`;
   }
 
-  public getSpecsOfSedPlotsInCombineArchive(
+  public getSpecsOfSedDocsInCombineArchive(
     runId: string,
   ): Observable<CombineArchive | undefined> {
     const archiveUrl = `${this.combineArchiveEndpoint}${runId}/download`;
-    return this.combineService.getSpecsOfSedDocsInCombineArchive(archiveUrl);
+    return this.combineService.getSpecsOfSedDocsInCombineArchive(archiveUrl)
+      .pipe(
+        map((archive: CombineArchive | undefined): CombineArchive | undefined => {
+          if (archive) {
+            archive.contents?.forEach((content: CombineArchiveContent): void => {
+              if (content.location.path.startsWith('./')) {
+                content.location.path = content.location.path.substring(2);
+              }
+            });
+          }
+          return archive;
+        })
+      );
   }
 }
 

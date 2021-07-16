@@ -21,66 +21,89 @@ import { VisualizationService } from '../../../services/visualization/visualizat
 import {
   PlotlyVisualizationComponent,
   AxisType,
-  ScatterTraceMode,
-  ScatterTrace,
-  Layout,
+  TraceType,
+  TraceMode,
+  Trace,
   DataLayout,
 } from './plotly-visualization/plotly-visualization.component';
 import { CombineService } from '../../../services/combine/combine.service';
 import { DispatchService } from '../../../services/dispatch/dispatch.service';
 import {
   Simulation,
-  CombineResults,
-  SedReportResults,
-  SedDatasetResults,
   SedDatasetResultsMap,
 } from '../../../datamodel';
 import {
   CombineArchive,
-  SedOutputType,
+  CombineArchiveContent,
+  CombineArchiveContentFile,
+  SedDocument,
+  SedModel,
+  SedSimulation,
+  SedAbstractTask,
+  SedDataGenerator,
+  SedOutput,
+  SedPlot2D,
+  SedReport,
+  SedDataSet,
 } from '../../../combine-sedml.interface';
 import { SimulationLogs } from '../../../simulation-logs-datamodel';
 import { ConfigService } from '@biosimulations/shared/services';
-import { BehaviorSubject, Observable, of, Subscription } from 'rxjs';
+import { BehaviorSubject, Observable, of, Subscription, combineLatest } from 'rxjs';
 import { concatAll, map, shareReplay, withLatestFrom } from 'rxjs/operators';
 import {
   AxisLabelType,
   AXIS_LABEL_TYPES,
   FormattedSimulation,
-  ScatterTraceModeLabel,
-  SCATTER_TRACE_MODEL_LABELS,
+  TraceModeLabel,
+  TRACE_MODE_LABELS,
 } from './view.model';
 import { ViewService } from './view.service';
 import {
   Spec as VegaSpec,
-  BaseData as VegaBaseData,
-  UrlData as VegaUrlData,
   Format as VegaDataFormat,
 } from 'vega';
 import { VegaVisualizationComponent } from '@biosimulations/shared/ui';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { urls } from '@biosimulations/config/common';
 import { CombineArchiveElementMetadata } from '../../../metadata.interface';
+import user1DHistogramVegaTemplate from './viz-vega-templates/1d-histogram.json';
+import user2DHeatmapVegaTemplate from './viz-vega-templates/2d-heatmap.json';
+import user2DLineScatterVegaTemplate from './viz-vega-templates/2d-line-scatter.json';
+
+interface Metadata {
+  archive: CombineArchiveElementMetadata | null;
+  other: CombineArchiveElementMetadata[];
+}
+
+enum VisualizationSource {
+  sedml = 'sedml',
+  vega = 'vega',
+  user = 'user',
+}
 
 enum VisualizationType {
-  'lineScatter2d' = 'Interactively design a grid of two-dimensional line or scatter plots',
-  'vega' = 'Select a Vega visualization file (supports arbitrarily complex visualizations) and map SED-ML reports to it',
+  sedml = 'sedml',
+  vega = 'vega',
+  user1DHistogram = 'user1DHistogram',
+  user2DHeatmap = 'user2DHeatmap',
+  user2DLineScatter = 'user2DLineScatter',
 }
 
-enum SubplotEnabledType {
-  'enabled' = 'Enabled',
-  'disabled' = 'Disabled',
+enum VisualizationRenderer {
+  vega = 'vega',
+  plotly = 'plotly',
 }
 
-interface SedmlLocationReportId {
-  uri: string;
+interface Visualization {
+  id: string;
+  source: VisualizationSource,
+  type: VisualizationType,
+  renderer: VisualizationRenderer,
+  uri: string | undefined;
   label: string;
-}
-
-type SedmlDatasetResults = (number | boolean)[];
-
-interface SedmlReportResults {
-  data: { [label: string]: SedmlDatasetResults };
+  vegaSpec: Observable<VegaSpec | undefined | false>;
+  sedmlOutputSpec: SedPlot2D | undefined;
+  error?: Error;
 }
 
 interface VegaDataSet {
@@ -92,11 +115,28 @@ interface VegaDataSet {
   format: VegaDataFormat | undefined;
 }
 
-type SimulationRunReport = any;
+export interface SedDocumentReports {
+  _type: 'SedDocument';
+  level: number;
+  version: number;
+  models: SedModel[];
+  simulations: SedSimulation[];
+  tasks: SedAbstractTask[];
+  dataGenerators: SedDataGenerator[];
+  outputs: SedReport[];
+}
 
-interface Metadata {
-  archive: CombineArchiveElementMetadata | null;
-  other: CombineArchiveElementMetadata[];
+export interface SedDocumentReportsCombineArchiveLocation {
+  _type: 'CombineArchiveLocation';
+  path: string;
+  value: SedDocumentReports;
+}
+
+interface SedDocumentReportsCombineArchiveContent {
+  _type: 'CombineArchiveContent';
+  location: SedDocumentReportsCombineArchiveLocation;
+  format: string;
+  master: boolean;
 }
 
 @Component({
@@ -106,76 +146,58 @@ interface Metadata {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ViewComponent implements OnInit, OnDestroy {
-  // Refactored Variables Start
   private uuid = '';
-  logs$!: Observable<SimulationLogs | undefined>;
-  runTime$!: Observable<string>;
+
+  // simulation run
   statusRunning$!: Observable<boolean>;
-  private statusSucceeded$!: Observable<boolean>;
-  formattedSimulation$?: Observable<FormattedSimulation>;
+  statusSucceeded$!: Observable<boolean>;
+  runTime$!: Observable<string>;
   private Simulation$!: Observable<Simulation>;
-  combineResultsStructure$!: Observable<CombineResults | undefined>;
-  private combineResultsSucceeded$!: Observable<
-    [SedDatasetResultsMap | undefined, boolean]
-  >;
-  private subscriptions: Subscription[] = [];
-  // refactored variables end
+  formattedSimulation$?: Observable<FormattedSimulation>;
 
-  formGroup: FormGroup;
-  lineScatter2dFormGroup: FormGroup;
-  private lineScatter2dRowsControl: FormControl;
-  private lineScatter2dColsControl: FormControl;
-  lineScatter2dSubplotsFormArray: FormArray;
-  subplotCurves: FormGroup[][] = [];
-  private vegaFormGroup: FormGroup;
-  vegaFileFormControl: FormControl;
-  vegaDataSets: VegaDataSet[] = [];
-  vegaDataSetSedmlLocationReportIdsFormArray: FormArray;
+  // metadata about COMBINE/OMEX archive of simulation run
+  metadataLoaded$!: Observable<boolean | undefined>;
+  metadata$!: Observable<Metadata | undefined>;
 
-  gettingResultsStructure = true;
-  hasData = false;
-  gettingResults = false;
-  dataLoaded = false;
-  combineResultsStructure: CombineResults | undefined = undefined;
-  private combineResults: SedDatasetResultsMap = {};
-  private defaultXSedDataset: SedDatasetResults | undefined = undefined;
-  private defaultYSedDataset: SedDatasetResults | undefined = undefined;
+  // SED documents in COMBINE/OMEX archive of simulation run
+  sedDocumentsConfiguration: CombineArchive | undefined;
+  sedDocumentsConfiguration$!: Observable<CombineArchive | undefined>;
+  sedDocumentReportsConfiguration$!: Observable<SedDocumentReportsCombineArchiveContent[]>;
+  private sedDataSetConfigurationMap!: {[uri: string]: SedDataSet};
 
-  VisualizationType = VisualizationType;
-  visualizationTypes: VisualizationType[] = [
-    VisualizationType.lineScatter2d,
-    VisualizationType.vega,
-  ];
-  selectedVisualizationType = VisualizationType.lineScatter2d;
+  // visualizations
+  visualizationFormGroup: FormGroup;
 
-  subplotEnabledTypes: SubplotEnabledType[] = [
-    SubplotEnabledType.enabled,
-    SubplotEnabledType.disabled,
-  ];
+  visualizations$!: Observable<Visualization[]>;
+  private visualizationsIdMap!: {[id: string]: Visualization};
+  selectedVisualization!: Visualization;
 
-  private sedmlLocationsReportIds = new BehaviorSubject<
-    SedmlLocationReportId[]
-  >([]);
-  sedmlLocationsReportIds$ = this.sedmlLocationsReportIds.asObservable();
-
-  axisLabelTypes: AxisLabelType[] = AXIS_LABEL_TYPES;
-  scatterTraceModeLabels: ScatterTraceModeLabel[] = SCATTER_TRACE_MODEL_LABELS;
-
-  lineScatter2dValid = false;
-  private vizDataLayout = new BehaviorSubject<DataLayout | null>(null);
-  vizDataLayout$ = this.vizDataLayout.asObservable();
-
-  private _vegaSpec: VegaSpec | null = null;
-  private vegaSpec = new BehaviorSubject<VegaSpec | null>(null);
-  vegaSpec$ = this.vegaSpec.asObservable();
-
-  @ViewChild(PlotlyVisualizationComponent)
-  private plotlyVisualization!: PlotlyVisualizationComponent;
   @ViewChild(VegaVisualizationComponent)
   private vegaVisualization!: VegaVisualizationComponent;
 
-  metadataLoaded$!: Observable<boolean | undefined>;
-  metadata$!: Observable<Metadata | undefined>;
+  @ViewChild(PlotlyVisualizationComponent)
+  private plotlyVisualization!: PlotlyVisualizationComponent;
+  private plotlyVizDataLayout = new BehaviorSubject<DataLayout | null | false>(null);
+  plotlyVizDataLayout$ = this.plotlyVizDataLayout.asObservable();
+
+  user1DHistogramDataSetsFormControl: FormControl;
+  user2DHeatmapYDataSetsFormControl: FormControl;
+  user2DLineScatterCurvesFormGroups: FormGroup[];
+
+  axisLabelTypes: AxisLabelType[] = AXIS_LABEL_TYPES;
+  traceModeLabels: TraceModeLabel[] = TRACE_MODE_LABELS;
+
+  userSimulationResults: SedDatasetResultsMap | undefined | false = undefined;
+  private userSimulationResultsLoaded = false;
+
+  // log of simulation run
+  logs$!: Observable<SimulationLogs | undefined>;
+
+  // subscriptions
+  private subscriptions: Subscription[] = [];
+
+  // tabs
+  selectedTabIndex = 0;
 
   constructor(
     private config: ConfigService,
@@ -189,52 +211,41 @@ export class ViewComponent implements OnInit, OnDestroy {
     private changeDetectorRef: ChangeDetectorRef,
     private snackBar: MatSnackBar,
   ) {
-    this.formGroup = formBuilder.group({
-      visualizationType: [this.visualizationTypes[0], [Validators.required]],
-      lineScatter2d: formBuilder.group({
-        rows: [1, [Validators.required, Validators.min(1)]],
-        cols: [1, [Validators.required, Validators.min(1)]],
-        subplots: formBuilder.array([]),
+    this.visualizationFormGroup = formBuilder.group({
+      visualization: [null, [Validators.required]],
+      user1DHistogram: formBuilder.group({
+        dataSets: [[], Validators.required],
       }),
-      vega: formBuilder.group({
-        vegaFile: [''],
-        vegaDataSetSedmlLocationReportIds: formBuilder.array([]),
+      user2DHeatmap: formBuilder.group({
+        yDataSets: [[], Validators.required],
+        xDataSet: [null],
+      }),
+      user2DLineScatter: formBuilder.group({
+        numCurves: [1, [Validators.required]],
+        curves: formBuilder.array([]),
+        xAxisType: [AxisType.linear, [Validators.required]],
+        yAxisType: [AxisType.linear, [Validators.required]],
+        traceMode: [TraceMode.lines, [Validators.required]],
       }),
     });
 
-    this.lineScatter2dFormGroup = this.formGroup.get(
-      'lineScatter2d',
-    ) as FormGroup;
-    this.lineScatter2dRowsControl = this.lineScatter2dFormGroup.get(
-      'rows',
-    ) as FormControl;
-    this.lineScatter2dColsControl = this.lineScatter2dFormGroup.get(
-      'cols',
-    ) as FormControl;
-    this.lineScatter2dSubplotsFormArray = this.lineScatter2dFormGroup.get(
-      'subplots',
-    ) as FormArray;
-    this.vegaFormGroup = this.formGroup.get('vega') as FormGroup;
-    this.vegaFileFormControl = this.vegaFormGroup.get(
-      'vegaFile',
-    ) as FormControl;
-    this.vegaFileFormControl.setErrors(null);
-    this.vegaDataSetSedmlLocationReportIdsFormArray = this.vegaFormGroup.get(
-      'vegaDataSetSedmlLocationReportIds',
-    ) as FormArray;
+    const user1DHistogramFormGroup = this.visualizationFormGroup.controls.user1DHistogram as FormGroup;
+    const user2DHeatmapFormGroup = this.visualizationFormGroup.controls.user2DHeatmap as FormGroup;
+    const user2DLineScatterFormGroup = this.visualizationFormGroup.controls.user2DLineScatter as FormGroup;
+    this.user1DHistogramDataSetsFormControl = user1DHistogramFormGroup.controls.dataSets as FormControl;
+    this.user2DHeatmapYDataSetsFormControl = user2DHeatmapFormGroup.controls.yDataSets as FormControl;
+    this.user2DLineScatterCurvesFormGroups = (user2DLineScatterFormGroup.controls.curves as FormArray).controls as FormGroup[];
   }
 
   public ngOnInit(): void {
     this.uuid = this.route.snapshot.params['uuid'];
+    this.initSimulationRun();
+    this.initVisualizations();
+    this.initSimulationRunLog();
+    this.initSimulationProjectMetadata();
+  }
 
-    const vegaFileFormControl = this.vegaFormGroup.get(
-      'vegaFile',
-    ) as FormControl;
-    const vegaSub = vegaFileFormControl.valueChanges.subscribe(
-      this.selectVegaFile.bind(this),
-    );
-    this.subscriptions.push(vegaSub);
-
+  initSimulationRun(): void {
     this.Simulation$ = this.simulationService
       .getSimulation(this.uuid)
       .pipe(shareReplay(1));
@@ -256,7 +267,202 @@ export class ViewComponent implements OnInit, OnDestroy {
         );
       }),
     );
+  }
 
+  initVisualizations(): void {
+    const archiveUrl = `${urls.dispatchApi}run/${this.uuid}/download`;
+
+    const archiveManifest = this.statusSucceeded$.pipe(
+      map(
+        (succeeded: boolean): Observable<CombineArchive | undefined> => {
+          return succeeded
+            ? this.combineService.getCombineArchiveManifest(
+                archiveUrl,
+              )
+            : of({ _type: 'CombineArchive', contents: [] });
+        }
+      ),
+      concatAll(),
+      shareReplay(1),
+    );
+
+    this.sedDocumentsConfiguration$ = this.statusSucceeded$.pipe(
+      map(
+        (succeeded: boolean): Observable<CombineArchive | undefined> => {
+          return succeeded
+            ? this.visualizationService.getSpecsOfSedDocsInCombineArchive(
+                this.uuid,
+              )
+            : of({ _type: 'CombineArchive', contents: [] });
+        }
+      ),
+      concatAll(),
+      shareReplay(1),
+    );
+
+    const sedDocumentsConfigurationSub = this.sedDocumentsConfiguration$.subscribe(
+      (archive: CombineArchive | undefined): void => {
+        this.sedDocumentsConfiguration = archive;
+      }
+    );
+    this.subscriptions.push(sedDocumentsConfigurationSub);
+
+    this.sedDocumentReportsConfiguration$ = this.sedDocumentsConfiguration$
+      .pipe(
+        map((archive: CombineArchive | undefined): SedDocumentReportsCombineArchiveContent[] => {
+          if (archive) {
+            archive = JSON.parse(JSON.stringify(archive)) as CombineArchive;
+            archive.contents.forEach((content: CombineArchiveContent): void => {
+              const sedDoc = content.location.value as SedDocument;
+              sedDoc.outputs = sedDoc.outputs.filter((output: SedOutput): boolean => {
+                return output._type === 'SedReport';
+              });
+            })
+            return archive.contents as SedDocumentReportsCombineArchiveContent[];
+          } else {
+            return [];
+          }
+        }),
+        shareReplay(1),
+      );
+
+    this.sedDocumentReportsConfiguration$.subscribe(
+      (contents: SedDocumentReportsCombineArchiveContent[]): void => {
+        this.sedDataSetConfigurationMap = {};
+        contents.forEach((sedDoc: SedDocumentReportsCombineArchiveContent): void => {
+          sedDoc.location.value.outputs.forEach((output: SedReport): void => {
+            output.dataSets.forEach((dataSet: SedDataSet): void => {
+              const uri = sedDoc.location.path + '/' + output.id + '/' + dataSet.id;
+              this.sedDataSetConfigurationMap[uri] = dataSet;
+            })
+          })
+        })
+      });
+
+    this.visualizations$ = combineLatest(this.statusSucceeded$, archiveManifest, this.sedDocumentsConfiguration$)
+      .pipe(
+        map((
+          args: [
+            boolean,
+            CombineArchive | undefined,
+            CombineArchive | undefined,
+          ],
+        ): Visualization[] => {
+          const succeeded = args[0];
+          const manifest = args[1];
+          const sedmlSpecs = args[2];
+
+          const visualizations: Visualization[] = [];
+          if (succeeded && manifest && sedmlSpecs) {
+            for (const content of manifest.contents) {
+              if (content.format == 'http://purl.org/NET/mediatypes/application/vega+json') {
+                visualizations.push({
+                  id: 'vega/' + (content.location.value as CombineArchiveContentFile).filename,
+                  source: VisualizationSource.vega,
+                  type: VisualizationType.vega,
+                  renderer: VisualizationRenderer.vega,
+                  uri: (content.location.value as CombineArchiveContentFile).filename,
+                  label: (content.location.value as CombineArchiveContentFile).filename + ' (Vega)',
+                  vegaSpec: of(undefined),
+                  sedmlOutputSpec: undefined,
+                });
+              }
+            }
+
+            for (const content of sedmlSpecs.contents) {
+              const sedDocument = content.location.value as SedDocument;
+              for (const output of sedDocument.outputs) {
+                if (['SedPlot2D'].includes(output._type)) {
+                  visualizations.push({
+                    id: `sedml/${content.location.path}/${output.id}`,
+                    source: VisualizationSource.sedml,
+                    type: VisualizationType.sedml,
+                    renderer: VisualizationRenderer.plotly,
+                    uri: `${content.location.path}/${output.id}`,
+                    label: `${output.name || output.id} of ${content.location.path} (SED-ML 2D line plot)`,
+                    vegaSpec: of(undefined),
+                    sedmlOutputSpec: output as SedPlot2D,
+                  });
+                }
+              }
+            }
+
+            visualizations.push({
+              id: `user1DHistogram`,
+              source: VisualizationSource.user,
+              type: VisualizationType.user1DHistogram,
+              renderer: VisualizationRenderer.plotly,
+              uri: undefined,
+              label: 'Design a 1D histogram',
+              vegaSpec: of(undefined),
+              sedmlOutputSpec: undefined,
+            });
+
+            visualizations.push({
+              id: `user2DHeatmap`,
+              source: VisualizationSource.user,
+              type: VisualizationType.user2DHeatmap,
+              renderer: VisualizationRenderer.plotly,
+              uri: undefined,
+              label: 'Design a 2D heatmap',
+              vegaSpec: of(undefined),
+              sedmlOutputSpec: undefined,
+            });
+
+            visualizations.push({
+              id: `user2DLineScatter`,
+              source: VisualizationSource.user,
+              type: VisualizationType.user2DLineScatter,
+              renderer: VisualizationRenderer.plotly,
+              uri: undefined,
+              label: 'Design a 2D line or scatter plot',
+              vegaSpec: of(undefined),
+              sedmlOutputSpec: undefined,
+            });
+          }
+
+          this.visualizationsIdMap = {};
+          for (const visualization of visualizations) {
+            this.visualizationsIdMap[visualization.id] = visualization;
+          }
+
+          if (visualizations.length) {
+            const visualizationFormControl = this.visualizationFormGroup.controls.visualization as FormControl;
+            visualizationFormControl.setValue(visualizations[0].id);
+            this.selectVisualization();
+          }
+
+          visualizations.sort(
+            (a: Visualization, b: Visualization): number => {
+              let aSource = 0;
+              let bSource = 0;
+              switch (a.source) {
+                case VisualizationSource.vega: aSource = 0; break;
+                case VisualizationSource.sedml: aSource = 1; break;
+                default: aSource = 2; break;
+              }
+              switch (b.source) {
+                case VisualizationSource.vega: bSource = 0; break;
+                case VisualizationSource.sedml: bSource = 1; break;
+                default: bSource = 2; break;
+              }
+
+              if (aSource < bSource) {
+                return -1;
+              }
+              if (aSource > bSource) {
+                return 1;
+              }
+
+              return a.label.localeCompare(b.label, undefined, { numeric: true });
+            });
+          return visualizations;
+        }),
+        shareReplay(1),
+      );
+  }
+
+  initSimulationRunLog(): void {
     this.logs$ = this.statusRunning$.pipe(
       map(
         (running: boolean): Observable<SimulationLogs | undefined> =>
@@ -296,145 +502,25 @@ export class ViewComponent implements OnInit, OnDestroy {
       }),
       shareReplay(1),
     );
+  }
 
-    this.combineResultsStructure$ = this.statusSucceeded$.pipe(
-      map(
-        (succeeded: boolean): Observable<CombineResults | undefined> =>
-          succeeded
-            ? this.visualizationService.getCombineResultsStructure(this.uuid)
-            : of(undefined),
-      ),
-      concatAll(),
-      shareReplay(1),
-    );
-
-    const combineResultsStructureSub = this.combineResultsStructure$
-      .pipe(withLatestFrom(this.statusSucceeded$), shareReplay(1))
-      .subscribe(
-        (succeededResults: [CombineResults | undefined, boolean]): void => {
-          const results = succeededResults[0] as CombineResults | undefined;
-          const succeeded = succeededResults[1] as boolean;
-          if (succeeded) {
-            if (results?.length) {
-              this.setProjectOutputs(results);
-            } else if (!results) {
-              this.snackBar.open(
-                'Sorry! We were unable to get results for this simulation.',
-                undefined,
-                {
-                  duration: 5000,
-                  horizontalPosition: 'center',
-                  verticalPosition: 'bottom',
-                },
-              );
-            }
-          }
-          this.gettingResultsStructure = false;
-          this.gettingResults = true;
-        },
-      );
-    this.subscriptions.push(combineResultsStructureSub);
-
-    this.combineResultsSucceeded$ = this.statusSucceeded$.pipe(
-      map(
-        (succeeded: boolean): Observable<SedDatasetResultsMap | undefined> =>
-          succeeded
-            ? this.visualizationService.getCombineResults(this.uuid)
-            : of(undefined),
-      ),
-      concatAll(),
-      withLatestFrom(this.statusSucceeded$),
-      shareReplay(1),
-    );
-
-    const combineResultsSub = this.combineResultsSucceeded$.subscribe(
-      (
-        combineResultsSucceeded: [SedDatasetResultsMap | undefined, boolean],
-      ): void => {
-        const combineResults = combineResultsSucceeded?.[0];
-        const statusSucceeded = combineResultsSucceeded?.[1];
-
-        if (statusSucceeded) {
-          if (combineResults) {
-            this.combineResults = combineResults;
-            this.dataLoaded = true;
-            this.build2dViz();
-          } else {
-            this.snackBar.open(
-              'Sorry! We were unable to get results for this simulation.',
-              undefined,
-              {
-                duration: 5000,
-                horizontalPosition: 'center',
-                verticalPosition: 'bottom',
-              },
-            );
-          }
-        }
-
-        this.gettingResults = false;
-      },
-    );
-    this.subscriptions.push(combineResultsSub);
-
-    const sedPlotConfiguration = this.combineResultsSucceeded$.pipe(
-      map(
-        (
-          results: [SedDatasetResultsMap | undefined, boolean],
-        ): Observable<CombineArchive | undefined> => {
-          return results
-            ? this.visualizationService.getSpecsOfSedPlotsInCombineArchive(
-                this.uuid,
-              )
-            : of({ _type: 'CombineArchive', contents: [] });
-        },
-      ),
-      concatAll(),
-      withLatestFrom(this.combineResultsSucceeded$),
-    );
-    const setPlotConfigurationSub = sedPlotConfiguration.subscribe(
-      (
-        succeededResultsArchive: [
-          CombineArchive | undefined,
-          [SedDatasetResultsMap | undefined, boolean],
-        ],
-      ): void => {
-        const archive = succeededResultsArchive[0] as
-          | CombineArchive
-          | undefined;
-        const results = succeededResultsArchive[1][0] as
-          | SedDatasetResultsMap
-          | undefined;
-        const succeeded = succeededResultsArchive[1][1] as boolean;
-
-        if (succeeded && results && Object.keys(results).length) {
-          if (archive) {
-            this.setPlotConfiguration(archive);
-          } else {
-            this.snackBar.open(
-              'Sorry! We were unable to retrieve the specifications of the plots in the SED-ML files for this simulation.',
-              undefined,
-              {
-                duration: 5000,
-                horizontalPosition: 'center',
-                verticalPosition: 'bottom',
-              },
-            );
-          }
-        }
-      },
-    );
-    this.subscriptions.push(setPlotConfigurationSub);
-
-    // get metadata
-    const archiveUrl = `${urls.dispatchApi}run/${this.uuid}/download`;
-    this.metadata$ = this.combineService
-      .getCombineArchiveMetadata(archiveUrl)
-      .pipe(
+  initSimulationProjectMetadata(): void {
+    const archiveUrl = this.getArchiveUrl();
+    this.metadata$ = combineLatest(
+        this.combineService.getCombineArchiveMetadata(archiveUrl),
+        this.visualizations$,
+        this.sedDocumentsConfiguration$,
+      ).pipe(
         map(
-          (
-            elMetadatas: CombineArchiveElementMetadata[] | undefined,
-          ): Metadata | undefined => {
+          (args: [
+            CombineArchiveElementMetadata[] | undefined,
+            Visualization[],
+            CombineArchive | undefined,
+          ]): Metadata | undefined => {
+            const elMetadatas = args[0];
+            const visualizations = args[1];
+            const sedDocumentsConfiguration = args[2];
+
             if (elMetadatas === undefined) {
               return undefined;
             }
@@ -475,6 +561,25 @@ export class ViewComponent implements OnInit, OnDestroy {
               },
             );
 
+            const visualizationsUriIdMap: {[uri: string]: string} = {};
+            for (const visualization of visualizations) {
+              if (visualization.uri) {
+                visualizationsUriIdMap[visualization.uri] = visualization.id;
+              }
+            }
+
+            const sedUris = new Set<string>();
+            if (sedDocumentsConfiguration) {
+              sedDocumentsConfiguration.contents.forEach((content: CombineArchiveContent): void => {
+                const uri = content.location.path;
+                const sedDocument = content.location.value as SedDocument
+                sedUris.add(uri);
+                sedDocument.outputs.forEach((output: SedOutput): void => {
+                  sedUris.add(uri + '/' + output.id);
+                });
+              });
+            }
+
             return {
               archive: elMetadatas.filter(
                 (elMetadata: CombineArchiveElementMetadata): boolean => {
@@ -485,470 +590,874 @@ export class ViewComponent implements OnInit, OnDestroy {
                 (elMetadata: CombineArchiveElementMetadata): boolean => {
                   return elMetadata.uri !== '.';
                 },
-              ),
+              ).map((elMetadata: CombineArchiveElementMetadata): CombineArchiveElementMetadata => {
+                if (elMetadata.uri.startsWith('./')) {
+                  elMetadata.uri = elMetadata.uri.substring(2);
+                }
+
+                if (elMetadata.uri in visualizationsUriIdMap) {
+                  elMetadata.click = (): void => {
+                    const vizFormControl = this.visualizationFormGroup.controls.visualization as FormControl;
+                    vizFormControl.setValue(visualizationsUriIdMap[elMetadata.uri]);
+                    this.selectVisualization();
+                    this.selectedTabIndex = this.iViewChartTab;
+                  };
+
+                } else if (sedUris.has(elMetadata.uri)) {
+                  elMetadata.click = (): void => {
+                    this.selectedTabIndex = this.iSelectChartTab;
+                  };
+                }
+
+                return elMetadata;
+              }),
             };
           },
         ),
+        shareReplay(1),
       );
     this.metadataLoaded$ = this.metadata$.pipe(
       map((): boolean => {
         return true;
       }),
+      shareReplay(1),
     );
+  }
+
+  getArchiveUrl(): string {
+    return `${urls.dispatchApi}run/${this.uuid}/download`;
   }
 
   public ngOnDestroy(): void {
     this.subscriptions.forEach((subscription) => subscription.unsubscribe());
   }
 
-  private setProjectOutputs(combineResultsStructure: CombineResults): void {
-    // store structure of results of the execution of the COMBINE archive
-    this.combineResultsStructure = combineResultsStructure;
-
-    const sedmlLocationsReportIds: SedmlLocationReportId[] = [
-      {
-        uri: '__none__',
-        label: '-- None --',
-      },
-    ];
-    for (const sedDocumentResultsStructure of combineResultsStructure) {
-      for (const sedReportResultsStructure of sedDocumentResultsStructure.reports) {
-        sedmlLocationsReportIds.push({
-          uri: encodeURIComponent(sedReportResultsStructure.uri),
-          label: sedReportResultsStructure.uri,
-        });
-      }
-    }
-    this.sedmlLocationsReportIds.next(sedmlLocationsReportIds);
-
-    // determine if the COMBINE archive generated at least one data set
-    let hasData = false;
-    for (const sedDocumentResultsStructure of combineResultsStructure) {
-      sedDocumentResultsStructure.reports.sort(
-        (a: SedReportResults, b: SedReportResults): number => {
-          return a.id.localeCompare(b.id, undefined, { numeric: true });
-        },
-      );
-
-      for (const sedReportResultsStructure of sedDocumentResultsStructure.reports) {
-        if (sedReportResultsStructure.datasets.length) {
-          hasData = true;
-          this.defaultXSedDataset = sedReportResultsStructure.datasets[0];
-          this.defaultYSedDataset =
-            sedReportResultsStructure.datasets?.[1] || this.defaultXSedDataset;
+  public selectVisualization(): void {
+    this.selectedVisualization = this.visualizationsIdMap?.[this.visualizationFormGroup.value.visualization];
+    if (this.selectedVisualization) {
+      switch (this.selectedVisualization.type) {
+        case VisualizationType.vega: {
+          this.setUpVegaVisualization();
           break;
         }
-
-        sedReportResultsStructure.datasets.sort(
-          (a: SedDatasetResults, b: SedDatasetResults): number => {
-            return a.label.localeCompare(b.label, undefined, {
-              numeric: true,
-            });
-          },
-        );
+        case VisualizationType.sedml: {
+          this.setUpSedmlVisualization();
+          break;
+        }
+        case VisualizationType.user1DHistogram: {
+          this.setUpUser1DHistogramVisualization();
+          break;
+        }
+        case VisualizationType.user2DHeatmap: {
+          this.setUpUser2DHeatmapVisualization();
+          break;
+        }
+        case VisualizationType.user2DLineScatter: {
+          this.setUpUser2DLineScatterVisualization();
+          break;
+        }
       }
     }
-    this.hasData = hasData;
-
-    // setup design visualization tab
-    this.updateVizGrid();
   }
 
-  private setPlotConfiguration(combineArchive: CombineArchive): void {
-    const subplotsCurves: any[] = [];
-    combineArchive.contents.forEach((content): void => {
-      content.location.value.outputs.forEach((output): void => {
-        if (output._type === SedOutputType.SedPlot2D) {
-          const curves = output.curves
-            .map((curve) => {
-              return {
-                id: curve.id,
-                name: curve?.name || null,
-                xData: curve.xDataGenerator._resultsDataSetId,
-                yData: curve.yDataGenerator._resultsDataSetId,
-              };
-            })
-            .filter((curve): boolean => {
-              const resultsAvailable =
-                curve.xData in this.combineResults &&
-                curve.yData in this.combineResults;
+  /* Vega visualization */
+  private setUpVegaVisualization(): void {
+    const visualization = this.selectedVisualization;
 
-              return resultsAvailable;
-            });
+    const archiveUrl = this.getArchiveUrl();
 
-          if (curves.length) {
-            subplotsCurves.push({
-              enabled: SubplotEnabledType.enabled,
-              numCurves: curves.length,
-              curves: curves,
-              xAxisType: output.xScale,
-              yAxisType: output.yScale,
-              scatterTraceMode: ScatterTraceMode.lines,
-            });
+    visualization.vegaSpec = this.combineService
+      .getFileInCombineArchive(archiveUrl, visualization.uri as string)
+      .pipe(
+        map((spec: VegaSpec | undefined): VegaSpec | false => {
+          if (spec) {
+            // link attributes of SED-ML documents to Vega signals
+            if (Array.isArray(spec?.signals)) {
+              for (const signal of spec?.signals) {
+                const anySignal = signal as any;
+                if ('sedmlUri' in signal) {
+                  const sedmlSimulationAttributePath = anySignal.sedmlUri as any;
+                  anySignal.value = this.getValueOfSedmlSimulationAttribute(sedmlSimulationAttributePath);
+                  if (anySignal.value === undefined) {
+                    return false;
+                  }
+                  delete anySignal['sedmlUri'];
+                }
+              }
+            }
+
+            // link results of SED-ML reports to Vega data sets
+            if (Array.isArray(spec?.data)) {
+              for (const data of spec?.data) {
+                const anyData = data as any;
+                const name = anyData?.name;
+                if ('sedmlUri' in anyData) {
+                  if (this.getSedReport(anyData.sedmlUri) && anyData.sedmlUri?.length == 2) {
+                    anyData.url = this.visualizationService.getOutputResultsUrl(
+                      this.uuid,
+                      anyData.sedmlUri.join('/'),
+                    );
+                    anyData.format = {
+                      type: 'json',
+                      property: 'data',
+                    };
+                    delete anyData['sedmlUri'];
+                    if ('values' in anyData) {
+                      delete anyData['values'];
+                    }
+                  } else {
+                    return false;
+                  }
+                }
+              }
+            }
+            return spec;
+          } else {
+            return false;
           }
+        }),
+        shareReplay(1),
+      );
+  }
+
+  private getSedDocument(path: any): SedDocument | undefined {
+    if (!Array.isArray(path)) {
+      return undefined;
+    }
+
+    if (!this.sedDocumentsConfiguration) {
+      return undefined;
+    }
+
+    let sedDocumentUri = path?.[0];
+    if (!(typeof sedDocumentUri === 'string' || sedDocumentUri instanceof String)) {
+      return undefined;
+    }
+
+    if (sedDocumentUri.startsWith('./')) {
+      sedDocumentUri = sedDocumentUri.substring(2);
+    }
+
+    for (const content of this.sedDocumentsConfiguration.contents) {
+      let thisSedDocumentUri = content.location.path;
+      if (thisSedDocumentUri.startsWith('./')) {
+        thisSedDocumentUri = thisSedDocumentUri.substring(2);
+      }
+      if (sedDocumentUri === thisSedDocumentUri) {
+        return content.location.value as SedDocument;
+      }
+    }
+
+    return undefined;
+  }
+
+  private getSedReport(path: any): SedReport | undefined {
+    const sedDocument: SedDocument | undefined = this.getSedDocument(path);
+    if (!sedDocument) {
+      return undefined;
+    }
+
+    const reportId = path?.[1];
+    if (!(typeof reportId === 'string' || reportId instanceof String)) {
+      return undefined;
+    }
+
+    for (const thisReport of sedDocument.outputs) {
+      if (thisReport._type == 'SedReport' && thisReport.id === reportId) {
+        return thisReport as SedReport;
+      }
+    }
+
+    return undefined;
+  }
+
+  private getValueOfSedmlSimulationAttribute(path: any): any {
+    const sedDocument: SedDocument | undefined = this.getSedDocument(path);
+    if (!sedDocument) {
+      return undefined;
+    }
+
+    const simulationId = path?.[1];
+    if (!(typeof simulationId === 'string' || simulationId instanceof String)) {
+      return undefined;
+    }
+
+    let simulation: SedSimulation | undefined = undefined;
+    for (const thisSimulation of sedDocument.simulations) {
+      if (thisSimulation.id === simulationId) {
+        simulation = thisSimulation;
+        break;
+      }
+    }
+    if (!simulation) {
+      return undefined;
+    }
+
+    if (path.length > 3) {
+      return undefined;
+    }
+
+    let attributeName = path?.[2];
+    if (!(typeof attributeName === 'string' || attributeName instanceof String)) {
+      return undefined;
+    }
+    if (attributeName === 'numberOfPoints') {
+      attributeName = 'numberOfSteps';
+    }
+
+    if (attributeName in simulation) {
+      const attributeValue = (simulation as any)[attributeName];
+      return attributeValue;
+    }
+
+    return undefined;
+  }
+
+  /* SED-ML visualization */
+  private setUpSedmlVisualization(): void {
+    const visualization = this.selectedVisualization;
+    this.plotlyVizDataLayout.next(null);
+
+    const sub = this.visualizationService
+      .getCombineResults(this.uuid) // TODO: replace with the following line when #2683 is fixed
+      // .getCombineResults(this.uuid, visualization.uri as string)
+      .subscribe((results: SedDatasetResultsMap | undefined): void => {
+        if (results) {
+          const traces: Trace[] = [];
+          const xAxisTitlesSet = new Set<string>();
+          const yAxisTitlesSet = new Set<string>();
+          const output = visualization.sedmlOutputSpec as SedPlot2D;
+          let missingData = false;
+          for (const curve of output.curves) {
+            const xId = curve.xDataGenerator._resultsDataSetId;
+            const yId = curve.yDataGenerator._resultsDataSetId;
+            xAxisTitlesSet.add(curve.xDataGenerator.name || curve.xDataGenerator.id);
+            yAxisTitlesSet.add(curve.yDataGenerator.name || curve.yDataGenerator.id);
+            const trace = {
+              name: curve.name || curve.id,
+              x: results?.[xId]?.values,
+              y: results?.[yId]?.values,
+              xaxis: 'x1',
+              yaxis: 'y1',
+              type: TraceType.scatter,
+              mode: TraceMode.lines,
+            };
+            if (trace.x && trace.y) {
+              traces.push(trace as Trace);
+            } else {
+              missingData = true;
+            }
+          }
+
+          const xAxisTitlesArr = Array.from(xAxisTitlesSet);
+          const yAxisTitlesArr = Array.from(yAxisTitlesSet);
+          let xAxisTitle: string | undefined = undefined;
+          let yAxisTitle: string | undefined = undefined;
+          let showLegend = false;
+
+          if (xAxisTitlesArr.length == 1) {
+            xAxisTitle = xAxisTitlesArr[0];
+          } else if (xAxisTitlesArr.length > 1) {
+            xAxisTitle = 'Multiple';
+            showLegend = true;
+          }
+
+          if (yAxisTitlesArr.length == 1) {
+            yAxisTitle = yAxisTitlesArr[0];
+          } else if (yAxisTitlesArr.length > 1) {
+            yAxisTitle = 'Multiple';
+            showLegend = true;
+          }
+
+          const dataLayout = {
+            data: traces,
+            layout: {
+              xaxis1: {
+                anchor: 'x1',
+                title: xAxisTitle,
+                type: output.xScale,
+              },
+              yaxis1: {
+                anchor: 'y1',
+                title: yAxisTitle,
+                type: output.yScale,
+              },
+              grid: {
+                rows: 1,
+                columns: 1,
+                pattern: 'independent',
+              },
+              showlegend: showLegend,
+              width: undefined,
+              height: undefined,
+            }
+          } as DataLayout;
+          if (missingData) {
+            this.plotlyVizDataLayout.next(false);
+          } else {
+            this.plotlyVizDataLayout.next(dataLayout);
+          }
+        } else {
+          this.plotlyVizDataLayout.next(false);
         }
       });
-    });
+    this.subscriptions.push(sub);
+  }
 
-    const nSubplots = subplotsCurves.length;
-    if (nSubplots === 0) {
-      return;
+  /* User-defined visualization */
+  private setUpUser1DHistogramVisualization() {
+    this.getUserSimulationResults();
+    this.displayUser1DHistogram();
+  }
+
+  private setUpUser2DHeatmapVisualization() {
+    this.getUserSimulationResults();
+    this.displayUser2DHeatmap();
+  }
+
+  private setUpUser2DLineScatterVisualization() {
+    this.getUserSimulationResults();
+    this.setNum2DLineScatterCurves();
+    this.displayUser2DLineScatterViz();
+  }
+
+  private getUserSimulationResults(): void {
+    if (!this.userSimulationResultsLoaded) {
+      this.userSimulationResultsLoaded = true;
+      this.visualizationService.getCombineResults(this.uuid)
+        .subscribe((results: SedDatasetResultsMap | undefined): void => {
+          this.userSimulationResults = results || false;
+          if (this.selectedVisualization.source == VisualizationSource.user) {
+            this.selectVisualization();
+          }
+        });
     }
+  }
 
-    this.lineScatter2dValid = true;
+  public setSelectedDataSets(
+    formControl: FormControl,
+    type: 'SedDocument' | 'SedReport' | 'SedDataSet',
+    sedDocument: SedDocumentReportsCombineArchiveContent,
+    sedDocumentId: string,
+    report?: SedReport,
+    reportId?: string,
+    dataSet?: SedDataSet,
+    dataSetId?: string,
+  ): void {
+    // const formGroup = this.visualizationFormGroup.controls.user1DHistogram as FormGroup;
+    // const formControl = formGroup.controls.dataSets as FormControl;
+    const selectedUris = new Set(formControl.value);
 
-    const rows = Math.ceil(Math.sqrt(nSubplots));
-    const cols = Math.ceil(nSubplots / rows);
-    this.lineScatter2dRowsControl.setValue(rows);
-    this.lineScatter2dColsControl.setValue(cols);
-    this.updateVizGrid();
+    const uri = sedDocumentId
+      + (reportId ? '/' + reportId : '')
+      + (dataSetId ? '/' + dataSetId : '');
+    const selected = selectedUris.has(uri);
 
-    for (let iSubplot = 0; iSubplot < subplotsCurves.length; iSubplot++) {
-      const subplot = this.lineScatter2dSubplotsFormArray.at(
-        iSubplot,
-      ) as FormGroup;
+    if (type === 'SedDocument') {
+      sedDocument.location.value.outputs.forEach((report: SedReport): void => {
+        const reportUri = uri + '/' + report.id;
+        if (selected) {
+          selectedUris.add(reportUri);
+        } else {
+          selectedUris.delete(reportUri);
+        }
 
-      const curves = subplotsCurves[iSubplot].curves;
-
-      const numCurvesControl = subplot.get('numCurves') as FormControl;
-      numCurvesControl.setValue(curves.length);
-      this.setNumCurves(iSubplot);
-
-      const iRow = Math.floor(iSubplot / cols);
-      const iCol = iSubplot % cols;
-      subplotsCurves[iSubplot]['label'] = `Subplot R${iRow + 1}, C${iCol + 1}`;
-    }
-
-    for (
-      let iSubplot = subplotsCurves.length;
-      iSubplot < rows * cols;
-      iSubplot++
-    ) {
-      const iRow = Math.floor(iSubplot / cols);
-      const iCol = iSubplot % cols;
-
-      subplotsCurves.push({
-        enabled: SubplotEnabledType.disabled,
-        label: `Subplot R${iRow + 1}, C${iCol + 1}`,
-        numCurves: 1,
-        curves: [
-          {
-            id: null,
-            name: null,
-            xData: this.defaultXSedDataset,
-            yData: this.defaultYSedDataset,
-          },
-        ],
-        xAxisType: AxisType.linear,
-        yAxisType: AxisType.linear,
-        scatterTraceMode: ScatterTraceMode.lines,
+        report.dataSets.forEach((dataSet: SedDataSet): void => {
+          const dataSetUri = reportUri + '/' + dataSet.id;
+          if (selected) {
+            selectedUris.add(dataSetUri);
+          } else {
+            selectedUris.delete(dataSetUri);
+          }
+        });
       });
-    }
 
-    this.lineScatter2dSubplotsFormArray.setValue(subplotsCurves);
-    this.build2dViz();
-  }
+    } else if (type === 'SedReport') {
+      if (!selected) {
+        selectedUris.delete(sedDocumentId);
+      }
 
-  public selectVisualizationType(): void {
-    this.selectedVisualizationType = this.formGroup.value.visualizationType;
-  }
-
-  public setVizGrid(): void {
-    this.updateVizGrid();
-  }
-
-  private updateVizGrid(): void {
-    const rows = this.lineScatter2dRowsControl.value;
-    const cols = this.lineScatter2dColsControl.value;
-
-    while (this.lineScatter2dSubplotsFormArray.length > rows * cols) {
-      this.subplotCurves.pop();
-      this.lineScatter2dSubplotsFormArray.removeAt(
-        this.lineScatter2dSubplotsFormArray.length - 1,
-      );
-    }
-
-    while (this.lineScatter2dSubplotsFormArray.length < rows * cols) {
-      const curves = this.formBuilder.array([]);
-      const subplot = this.formBuilder.group({
-        label: [''],
-        enabled: [SubplotEnabledType.enabled, Validators.required],
-        numCurves: [1, [Validators.required]],
-        curves: curves,
-        xAxisType: [AxisType.linear, [Validators.required]],
-        yAxisType: [AxisType.linear, [Validators.required]],
-        scatterTraceMode: [ScatterTraceMode.lines, [Validators.required]],
+      (report as SedReport).dataSets.forEach((dataSet: SedDataSet): void => {
+        const dataSetUri = uri + '/' + dataSet.id;
+        if (selected) {
+          selectedUris.add(dataSetUri);
+        } else {
+          selectedUris.delete(dataSetUri);
+        }
       });
-      this.subplotCurves.push(curves.controls as FormGroup[]);
-      this.lineScatter2dSubplotsFormArray.push(subplot);
-      this.setNumCurves(this.lineScatter2dSubplotsFormArray.length - 1);
+
+      let hasAllReports = true;
+      for (const report of sedDocument.location.value.outputs) {
+        const reportUri = sedDocumentId + '/' + (report as SedReport).id;
+        if (!selectedUris.has(reportUri)) {
+          hasAllReports = false;
+          break;
+        }
+      }
+      if (hasAllReports) {
+        selectedUris.add(sedDocumentId);
+      }
+
+    } else {
+      if (selected) {
+        let hasAllDataSets = true;
+        for (const dataSet of (report as SedReport).dataSets) {
+          const dataSetUri = sedDocumentId + '/' + (report as SedReport).id + '/' + dataSet.id;
+          if (!selectedUris.has(dataSetUri)) {
+            hasAllDataSets = false;
+            break;
+          }
+        }
+        if (hasAllDataSets) {
+          selectedUris.add(sedDocumentId + '/' + (reportId as string));
+        }
+
+        let hasAllReports = true;
+        for (const report of sedDocument.location.value.outputs) {
+          const reportUri = sedDocumentId + '/' + (report as SedReport).id;
+          if (!selectedUris.has(reportUri)) {
+            hasAllReports = false;
+            break;
+          }
+        }
+        if (hasAllReports) {
+          selectedUris.add(sedDocumentId);
+        }
+
+      } else {
+        selectedUris.delete(sedDocumentId + '/' + (reportId as string));
+        selectedUris.delete(sedDocumentId);
+      }
     }
 
-    for (let iSubplot = 0; iSubplot < rows * cols; iSubplot++) {
-      const subplot = this.lineScatter2dSubplotsFormArray.at(
-        iSubplot,
-      ) as FormGroup;
-      const iRow = Math.floor(iSubplot / cols);
-      const iCol = iSubplot % cols;
-      subplot.controls.label.setValue(`Subplot R${iRow + 1}, C${iCol + 1}`);
-    }
-
-    this.build2dViz();
+    formControl.setValue(Array.from(selectedUris));
+    this.displayUserViz();
   }
 
-  public setNumCurves(iSubplot: number): void {
-    const subplot = this.lineScatter2dSubplotsFormArray.at(
-      iSubplot,
-    ) as FormGroup;
-    const numCurves = subplot.value.numCurves;
-    const curves = subplot.get('curves') as FormArray;
+  public setNum2DLineScatterCurves(): void {
+    const formGroup = this.visualizationFormGroup.controls.user2DLineScatter as FormGroup;
+    const numCurves = formGroup.value.numCurves;
+    const curvesFormArray = formGroup.controls.curves as FormArray;
 
-    while (curves.length > numCurves) {
-      curves.removeAt(curves.length - 1);
+    while (curvesFormArray.length > numCurves) {
+      curvesFormArray.removeAt(curvesFormArray.length - 1);
     }
 
-    while (curves.length < numCurves) {
+    while (curvesFormArray.length < numCurves) {
       const curve = this.formBuilder.group({
-        id: [null],
         name: [null],
-        xData: [this.defaultXSedDataset?.uri, [Validators.required]],
-        yData: [this.defaultYSedDataset?.uri, [Validators.required]],
+        xData: [null, [Validators.required]],
+        yData: [null, [Validators.required]],
       });
-      curves.push(curve);
-    }
-
-    this.build2dViz();
-  }
-
-  public build2dViz(): void {
-    if (this.dataLoaded && this.defaultYSedDataset) {
-      this.lineScatter2dValid = true;
-      this.draw2dViz();
+      curvesFormArray.push(curve);
     }
   }
 
-  private draw2dViz(): void {
-    const rows = this.lineScatter2dRowsControl.value;
-    const cols = this.lineScatter2dColsControl.value;
+  public displayUserViz(): void {
+    switch (this.selectedVisualization.type) {
+      case VisualizationType.user1DHistogram: {
+        this.displayUser1DHistogram();
+        break;
+      }
+      case VisualizationType.user2DHeatmap: {
+        this.displayUser2DHeatmap();
+        break;
+      }
+      case VisualizationType.user2DLineScatter: {
+        this.displayUser2DLineScatterViz();
+        break;
+      }
+    }
+  }
 
-    const traces: ScatterTrace[] = [];
-    const layout: Layout = {
-      grid: {
-        rows: rows,
-        columns: cols,
-        pattern: 'independent',
-      },
-      showlegend: false,
-      width: undefined,
-      height: undefined,
-    };
+  private displayUser1DHistogram(): void {
+    if (this.userSimulationResults) {
+      const formGroup = this.visualizationFormGroup.controls.user1DHistogram as FormGroup;
+      const formControl = formGroup.controls.dataSets as FormControl;
+      const selectedUris = formControl.value;
 
-    for (
-      let iSubplot = 0;
-      iSubplot < this.lineScatter2dSubplotsFormArray.length;
-      iSubplot++
-    ) {
-      const subplotFormGroup = this.lineScatter2dSubplotsFormArray.at(
-        iSubplot,
-      ) as FormGroup;
-      const xAxisId = 'x' + (iSubplot + 1).toString();
-      const yAxisId = 'y' + (iSubplot + 1).toString();
+      let allData: any = [];
+      let missingData = false;
+      const xAxisTitles: string[] = [];
+      for (let selectedUri of selectedUris) {
+        if (selectedUri.startsWith('./')) {
+          selectedUri = selectedUri.substring(2);
+        }
+
+        const selectedDataSet = this.sedDataSetConfigurationMap?.[selectedUri];
+        if (selectedDataSet) {
+          const data = this.userSimulationResults?.[selectedUri];
+          if (data) {
+            allData = allData.concat(this.flattenArray(data.values));
+            xAxisTitles.push(data.label);
+          } else {
+            missingData = true;
+            break;
+          }
+        }
+      }
+
+      const trace = {
+        x: allData,
+        xaxis: 'x1',
+        yaxis: 'y1',
+        type: TraceType.histogram,
+      };
+
+      let xAxisTitle: string | undefined = undefined;
+      if (xAxisTitles.length === 1) {
+        xAxisTitle = xAxisTitles[0];
+      } else if (xAxisTitles.length > 1) {
+        xAxisTitle = 'Multiple';
+      }
+
+      const dataLayout = {
+        data: [trace],
+        layout: {
+          xaxis1: {
+            anchor: 'x1',
+            title: xAxisTitle,
+            type: 'linear',
+          },
+          yaxis1: {
+            anchor: 'y1',
+            title: 'Frequency',
+            type: 'linear',
+          },
+          grid: {
+            rows: 1,
+            columns: 1,
+            pattern: 'independent',
+          },
+          showlegend: false,
+          width: undefined,
+          height: undefined,
+        }
+      } as DataLayout;
+
+      if (missingData) {
+        this.plotlyVizDataLayout.next(false);
+      } else {
+        this.plotlyVizDataLayout.next(dataLayout);
+      }
+    } else if (this.userSimulationResults === undefined) {
+      this.plotlyVizDataLayout.next(null);
+    } else {
+      this.plotlyVizDataLayout.next(false);
+    }
+  }
+
+  private flattenArray(nestedArray: any[]): any[] {
+    const flattenedArray: any[] = [];
+    const toFlatten = [...nestedArray];
+    while (toFlatten.length) {
+      const el = toFlatten.pop();
+      if (Array.isArray(el)) {
+        toFlatten.push(el);
+      } else {
+        flattenedArray.push(el);
+      }
+    }
+    return flattenedArray;
+  }
+
+  private displayUser2DHeatmap(): void {
+    if (this.userSimulationResults) {
+      const formGroup = this.visualizationFormGroup.controls.user2DHeatmap as FormGroup;
+      const yFormControl = formGroup.controls.yDataSets as FormControl;
+      const xFormControl = formGroup.controls.xDataSet as FormControl;
+      const selectedYUris = yFormControl.value;
+      const selectedXUri = xFormControl.value;
+
+      let missingData = false;
+
+      const zData: any[][] = [];
+      const yTicks: string[] = [];
+      for (let selectedUri of selectedYUris) {
+        if (selectedUri.startsWith('./')) {
+          selectedUri = selectedUri.substring(2);
+        }
+
+        const selectedDataSet = this.sedDataSetConfigurationMap?.[selectedUri];
+        if (selectedDataSet) {
+          const data = this.userSimulationResults?.[selectedUri];
+          if (data) {
+            const flattenedData = this.flattenArray(data.values);
+            zData.push(flattenedData);
+            yTicks.push(data.label);
+          } else {
+            missingData = true;
+            break;
+          }
+        }
+      }
+
+      let xTicks: any[] | undefined = undefined;
+      let xAxisTitle: string | undefined = undefined;
+      if (selectedXUri) {
+        const data = this.userSimulationResults?.[selectedXUri];
+        if (data) {
+          xTicks = this.flattenArray(data.values);
+          xAxisTitle = data.label;
+        } else {
+          missingData = true;
+        }
+      }
+
+      zData.reverse();
+      yTicks.reverse();
+
+      const trace = {
+        z: zData,
+        y: yTicks,
+        x: xTicks,
+        xaxis: 'x1',
+        yaxis: 'y1',
+        type: TraceType.heatmap,
+        hoverongaps: false,
+      };
+
+      const dataLayout = {
+        data: [trace],
+        layout: {
+          xaxis1: {
+            anchor: 'x1',
+            title: xAxisTitle,
+            type: 'linear',
+          },
+          //yaxis1: {
+          //  anchor: 'y1',
+          //  title: undefined,
+          //  type: 'linear',
+          //},
+          grid: {
+            rows: 1,
+            columns: 1,
+            pattern: 'independent',
+          },
+          showlegend: false,
+          width: undefined,
+          height: undefined,
+        }
+      } as DataLayout;
+
+      if (missingData) {
+        this.plotlyVizDataLayout.next(false);
+      } else {
+        this.plotlyVizDataLayout.next(dataLayout);
+      }
+    } else if (this.userSimulationResults === undefined) {
+      this.plotlyVizDataLayout.next(null);
+    } else {
+      this.plotlyVizDataLayout.next(false);
+    }
+  }
+
+  private displayUser2DLineScatterViz(): void {
+    if (this.userSimulationResults) {
+      const formGroup = this.visualizationFormGroup.controls.user2DLineScatter as FormGroup;
+      const traceMode = (formGroup.controls.traceMode as FormControl).value;
+
+      const traces = [];
       const xAxisTitlesSet = new Set<string>();
       const yAxisTitlesSet = new Set<string>();
+      let missingData = false;
 
-      if (
-        subplotFormGroup.controls['enabled'].value == SubplotEnabledType.enabled
-      ) {
-        const curvesFormArray = subplotFormGroup.controls[
-          'curves'
-        ] as FormArray;
-        for (let iCurve = 0; iCurve < curvesFormArray.length; iCurve++) {
-          const curveFormGroup = curvesFormArray.at(iCurve) as FormGroup;
+      for (const curve of this.user2DLineScatterCurvesFormGroups) {
+        const xDataUri = (curve.controls.xData as FormControl).value;
+        const yDataUri = (curve.controls.yData as FormControl).value;
+        if (xDataUri && yDataUri) {
+          const xDataSet = this.sedDataSetConfigurationMap[xDataUri];
+          const yDataSet = this.sedDataSetConfigurationMap[yDataUri];
+          const xLabel = xDataSet.name || xDataSet.label || xDataSet.id;
+          const yLabel = yDataSet.name || yDataSet.label || yDataSet.id;
+          const name = (curve.controls.name as FormControl).value || `${yLabel} vs ${xLabel}`;
 
-          const name = curveFormGroup.value.name || curveFormGroup.value.id;
+          const trace = {
+            name: name,
+            x: this.userSimulationResults?.[xDataUri]?.values,
+            y: this.userSimulationResults?.[yDataUri]?.values,
+            xaxis: 'x1',
+            yaxis: 'y1',
+            type: TraceType.scatter,
+            mode: traceMode,
+          }
 
-          const xDataId = curveFormGroup.value.xData;
-          const yDataId = curveFormGroup.value.yData;
-
-          const xDataset = this.combineResults?.[xDataId] as SedDatasetResults;
-          const yDataset = this.combineResults?.[yDataId] as SedDatasetResults;
-
-          xAxisTitlesSet.add(xDataset.label);
-          yAxisTitlesSet.add(yDataset.label);
-
-          traces.push({
-            name: name || yDataset.label + ' vs. ' + xDataset.label,
-            x: xDataset.values,
-            y: yDataset.values,
-            xaxis: xAxisId,
-            yaxis: yAxisId,
-            mode: subplotFormGroup.controls['scatterTraceMode'].value,
-          });
+          if (trace.x && trace.y) {
+            traces.push(trace);
+            xAxisTitlesSet.add(xLabel);
+            yAxisTitlesSet.add(yLabel);
+          } else if (xDataUri && yDataUri) {
+            missingData = true;
+          }
         }
       }
 
       const xAxisTitlesArr = Array.from(xAxisTitlesSet);
       const yAxisTitlesArr = Array.from(yAxisTitlesSet);
+
       let xAxisTitle: string | undefined = undefined;
       let yAxisTitle: string | undefined = undefined;
 
-      if (xAxisTitlesArr.length == 1) {
+      if (xAxisTitlesArr.length === 1) {
         xAxisTitle = xAxisTitlesArr[0];
       } else if (xAxisTitlesArr.length > 1) {
-        layout.showlegend = true;
+        xAxisTitle = 'Multiple';
       }
 
-      if (yAxisTitlesArr.length == 1) {
+      if (yAxisTitlesArr.length === 1) {
         yAxisTitle = yAxisTitlesArr[0];
       } else if (yAxisTitlesArr.length > 1) {
-        layout.showlegend = true;
+        yAxisTitle = 'Multiple';
       }
 
-      layout['xaxis' + (iSubplot + 1).toString()] = {
-        anchor: xAxisId,
-        title: xAxisTitle,
-        type: subplotFormGroup.controls['xAxisType'].value,
-      };
+      const dataLayout = {
+        data: traces,
+        layout: {
+          xaxis1: {
+            anchor: 'x1',
+            title: xAxisTitle,
+            type: (formGroup.controls.xAxisType as FormControl).value,
+          },
+          yaxis1: {
+            anchor: 'y1',
+            title: yAxisTitle,
+            type: (formGroup.controls.yAxisType as FormControl).value,
+          },
+          grid: {
+            rows: 1,
+            columns: 1,
+            pattern: 'independent',
+          },
+          showlegend: traces.length > 1,
+          width: undefined,
+          height: undefined,
+        }
+      } as DataLayout;
 
-      layout['yaxis' + (iSubplot + 1).toString()] = {
-        anchor: yAxisId,
-        title: yAxisTitle,
-        type: subplotFormGroup.controls['yAxisType'].value,
-      };
+      if (missingData) {
+        this.plotlyVizDataLayout.next(false);
+      } else {
+        this.plotlyVizDataLayout.next(dataLayout);
+      }
+    } else if (this.userSimulationResults === undefined) {
+      this.plotlyVizDataLayout.next(null);
+    } else {
+      this.plotlyVizDataLayout.next(false);
+    }
+  }
+
+  exportUserViz(format: 'vega' | 'combine'): void {
+    this.selectedVisualization;
+
+    const selectedDataSets: {[outputUri: string]: string[]} = {};
+    let vega: any;
+    switch (this.selectedVisualization.type) {
+      case VisualizationType.user1DHistogram: {
+        const formGroup = this.visualizationFormGroup.controls.user1DHistogram as FormGroup;
+        const formControl = formGroup.controls.dataSets as FormControl;
+        const selectedUris = formControl.value;
+        vega = JSON.parse(JSON.stringify(user1DHistogramVegaTemplate)) as any;
+
+        const xAxisTitles: string[] = [];
+        for (let selectedUri of selectedUris) {
+          if (selectedUri.startsWith('./')) {
+            selectedUri = selectedUri.substring(2);
+          }
+
+          const selectedDataSet = this.sedDataSetConfigurationMap?.[selectedUri];
+          if (selectedDataSet) {
+            const data = (this.userSimulationResults as SedDatasetResultsMap)?.[selectedUri];
+            if (data) {
+              const outputUri = data.location + '/' + data.outputId;
+              if (!(outputUri in selectedDataSets)) {
+                selectedDataSets[outputUri] = [];
+              }
+              selectedDataSets[outputUri].push(data.id);
+              xAxisTitles.push(data.label);
+            }
+          }
+        }
+
+        let xAxisTitle: string | undefined = undefined;
+        if (xAxisTitles.length === 1) {
+          xAxisTitle = xAxisTitles[0];
+        } else if (xAxisTitles.length > 1) {
+          xAxisTitle = 'Multiple';
+        }
+        vega.signals.forEach((signal: any): void => {
+          if (signal.name === 'xAxisTitle') {
+            signal.value = xAxisTitle;
+          }
+        });
+        break;
+      }
+      case VisualizationType.user2DHeatmap: {
+        const formGroup = this.visualizationFormGroup.controls.user2DHeatmap as FormGroup;
+        const yFormControl = formGroup.controls.yDataSets as FormControl;
+        const xFormControl = formGroup.controls.xDataSet as FormControl;
+        const selectedYUris = yFormControl.value;
+        const selectedXUri = xFormControl.value;
+        vega = JSON.parse(JSON.stringify(user2DHeatmapVegaTemplate)) as any;
+        break;
+      }
+      case VisualizationType.user2DLineScatter: {
+        const formGroup = this.visualizationFormGroup.controls.user2DLineScatter as FormGroup;
+        const curvesFormArray = formGroup.controls.curves as FormArray;
+        vega = JSON.parse(JSON.stringify(user2DLineScatterVegaTemplate)) as any;
+        break;
+      }
     }
 
-    this.vizDataLayout.next({
-      data: traces,
-      layout: layout,
+    const data = vega.data as any[];
+    data.shift();
+    data.shift();
+
+    const filteredVegaDataSetNames: string[] = [];
+    Object.entries(selectedDataSets).forEach((outputUriDataSetIds: [string, string[]], i: number): void => {
+      const outputUriParts = outputUriDataSetIds[0].split('/');
+      const outputId = outputUriParts.pop();
+      const sedDocumentLocation = outputUriParts.join('/');
+      const dataSetIds = outputUriDataSetIds[1];
+      const filteredVegaDataSetName = `rawData${i}_filtered`;
+
+      filteredVegaDataSetNames.push(filteredVegaDataSetName);
+      data.unshift({
+        "name": filteredVegaDataSetName,
+        "source": `rawData${i}`,
+        "transform": [{
+          "type": "filter",
+          "expr": `indexof(['${dataSetIds.join('\', \'')}'], datum.id) !== -1`
+        }]
+      })
+      data.unshift({
+        "name": `rawData${i}`,
+        "sedmlUri": [sedDocumentLocation, outputId],
+      })
     });
 
-    // setTimeout(() => this.changeDetectorRef.detectChanges());
-  }
+    data[2 * Object.keys(selectedDataSets).length].source = filteredVegaDataSetNames;
 
-  public selectVegaFile(file: File): void {
-    while (this.vegaDataSetSedmlLocationReportIdsFormArray.length !== 0) {
-      this.vegaDataSets.pop();
-      this.vegaDataSetSedmlLocationReportIdsFormArray.removeAt(0);
+    // download
+    if (format === 'vega') {
+      const blob = new Blob([JSON.stringify(vega, null, 2)], { type: 'application/vega+json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'visualization.json';
+      a.click();
+
+    // } else {
+
     }
-
-    const reader = new FileReader();
-    file.text().then(
-      (content: string): void => {
-        try {
-          this._vegaSpec = JSON.parse(content) as VegaSpec;
-          this.vegaFileFormControl.setErrors(null);
-
-          const vegaDatas = this._vegaSpec?.data;
-          if (Array.isArray(vegaDatas)) {
-            (vegaDatas as any[]).forEach((data: any, iData: number): void => {
-              const name = data?.name;
-              if (
-                typeof name === 'string' &&
-                data?._mapToSedmlReport !== false
-              ) {
-                this.vegaDataSets.push({
-                  index: iData,
-                  name: name,
-                  source: data?.source,
-                  url: data?.url,
-                  values: data?.values,
-                  format: data?.format,
-                });
-                this.vegaDataSetSedmlLocationReportIdsFormArray.push(
-                  this.formBuilder.control(
-                    this.sedmlLocationsReportIds.value[0].uri,
-                  ),
-                );
-              }
-            });
-          }
-        } catch (err) {
-          console.error(err);
-          this._vegaSpec = null;
-          this.vegaFileFormControl.setErrors({ invalid: true });
-        }
-
-        this.changeDetectorRef.detectChanges();
-
-        this.buildVegaVizData();
-      },
-      (): void => {
-        this.vegaFileFormControl.setErrors({ invalid: true });
-        this.changeDetectorRef.detectChanges();
-      },
-    );
   }
 
-  public buildVegaVizData(): void {
-    const vegaSpec = this._vegaSpec as VegaSpec;
-
-    this.vegaDataSetSedmlLocationReportIdsFormArray.value.forEach(
-      (value: string | null, iVegaDataSet: number): void => {
-        const vegaDataSet = this.vegaDataSets[iVegaDataSet];
-        const vegaSpecDataSet = vegaSpec?.data?.[
-          vegaDataSet.index
-        ] as VegaBaseData;
-        if (value === this.sedmlLocationsReportIds.value[0].uri) {
-          if (vegaDataSet.source) {
-            (vegaSpecDataSet as any).source = vegaDataSet.source;
-          } else if ('source' in vegaSpecDataSet) {
-            delete (vegaSpecDataSet as any).source;
-          }
-
-          if (vegaDataSet.url) {
-            (vegaSpecDataSet as any).url = vegaDataSet.url;
-          } else if ('url' in vegaSpecDataSet) {
-            delete (vegaSpecDataSet as any).url;
-          }
-
-          if (vegaDataSet.values) {
-            (vegaSpecDataSet as any).values = vegaDataSet.values;
-          } else if ('values' in vegaSpecDataSet) {
-            delete (vegaSpecDataSet as any).values;
-          }
-
-          if (vegaDataSet.format) {
-            (vegaSpecDataSet as any).format = vegaDataSet.format;
-          } else if ('format' in vegaSpecDataSet) {
-            delete (vegaSpecDataSet as any).format;
-          }
-        } else {
-          if ('source' in vegaDataSet) {
-            delete (vegaSpecDataSet as any).source;
-          }
-
-          if ('values' in vegaDataSet) {
-            delete (vegaSpecDataSet as any).values;
-          }
-
-          const vegaSpecUrlDataSet = vegaSpecDataSet as VegaUrlData;
-
-          vegaSpecUrlDataSet.url =
-            this.visualizationService.getReportResultsUrl(
-              this.uuid,
-              value as string,
-            );
-          vegaSpecUrlDataSet.format = {
-            type: 'json',
-            property: 'data',
-          };
-        }
-      },
-    );
-
-    this.vegaSpec.next(this._vegaSpec);
-    // this.changeDetectorRef.detectChanges();
-  }
-
-  public vegaErrorHandler(): void {
-    this.vegaFileFormControl.setErrors({ invalid: true });
-    this.changeDetectorRef.detectChanges();
-  }
-
-  private iVisualizationTab = 3;
+  /* tabs */
+  private iSelectChartTab = 2;
+  private iViewChartTab = 3;
 
   public selectedTabChange($event: MatTabChangeEvent): void {
-    if ($event.index == this.iVisualizationTab) {
+    this.selectedTabIndex = $event.index;
+    if ($event.index == this.iViewChartTab) {
       if (this.plotlyVisualization) {
         this.plotlyVisualization.setLayout();
       }

@@ -167,10 +167,15 @@ export interface SedDocument {
   outputs: SedOutput[];
 }
 
+export interface CombineArchiveContentFile {
+  _type: 'CombineArchiveContentFile';
+  filename: string;
+}
+
 export interface CombineArchiveLocation {
   _type: 'CombineArchiveLocation';
   path: string;
-  value: SedDocument;
+  value: SedDocument | CombineArchiveContentFile;
 }
 
 export interface CombineArchiveContent {
