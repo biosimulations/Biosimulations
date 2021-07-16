@@ -39,14 +39,6 @@ const routes: Routes = [
     loadChildren: () => import('./home/home.module').then((m) => m.HomeModule),
   },
   {
-    path: 'models',
-    loadChildren: () =>
-      import('./models/models.module').then((m) => m.ModelsModule),
-    data: {
-      breadcrumb: 'Models',
-    },
-  },
-  {
     path: 'help',
     loadChildren: () => import('./help/help.module').then((m) => m.HelpModule),
     data: {
@@ -56,6 +48,12 @@ const routes: Routes = [
   {
     path: 'error',
     loadChildren: () => SharedErrorComponentsModule,
+  },
+  {
+    path: 'projects',
+    loadChildren: () =>
+      import('./projects/projects.module').then((m) => m.ProjectsModule),
+    data: { breadcrumb: 'Projects' },
   },
   {
     path: '**',
@@ -82,7 +80,6 @@ routes.forEach((route: Route): void => {
     RouterModule.forRoot(routes, {
       initialNavigation: 'enabled',
       scrollPositionRestoration: 'disabled',
-      relativeLinkResolution: 'legacy',
     }),
     ServiceWorkerModule.register('ngsw-worker.js', {
       enabled: environment.production,

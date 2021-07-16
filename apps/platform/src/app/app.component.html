@@ -10,35 +10,7 @@
     <biosimulations-topbar-menu-item
       heading="Projects"
       icon="project"
-      [disabled]="true"
-    >
-    </biosimulations-topbar-menu-item>
-
-    <biosimulations-topbar-menu-item
-      heading="Models"
-      icon="model"
-      [route]="['/models']"
-    >
-    </biosimulations-topbar-menu-item>
-
-    <biosimulations-topbar-menu-item
-      heading="Simulations"
-      icon="simulation"
-      [disabled]="true"
-    >
-    </biosimulations-topbar-menu-item>
-
-    <biosimulations-topbar-menu-item
-      heading="Charts"
-      icon="chart"
-      [disabled]="true"
-    >
-    </biosimulations-topbar-menu-item>
-
-    <biosimulations-topbar-menu-item
-      heading="Visualizations"
-      icon="visualization"
-      [disabled]="true"
+      [route]="['/projects']"
     >
     </biosimulations-topbar-menu-item>
 
@@ -83,199 +55,26 @@
         </biosimulations-dropdown-menu-item>
       </ng-container>
     </biosimulations-hover-open-menu>
-
-    <biosimulations-topbar-menu-item
-      heading="Login"
-      icon="login"
-      *ngIf="(isAuthenticated() | async) !== true"
-      (click)="login()"
-    >
-    </biosimulations-topbar-menu-item>
-
-    <biosimulations-hover-open-menu
-      *ngIf="(isAuthenticated() | async) === true"
-    >
-      <biosimulations-topbar-menu-item
-        heading="Account"
-        icon="user"
-        id="trigger"
-      >
-      </biosimulations-topbar-menu-item>
-
-      <ng-container id="items">
-        <biosimulations-dropdown-menu-item
-          heading="Projects"
-          icon="project"
-          [disabled]="true"
-        >
-        </biosimulations-dropdown-menu-item>
-
-        <biosimulations-dropdown-menu-item
-          heading="Models"
-          icon="model"
-          [disabled]="true"
-        >
-        </biosimulations-dropdown-menu-item>
-
-        <biosimulations-dropdown-menu-item
-          heading="Simulations"
-          icon="simulation"
-          [disabled]="true"
-        >
-        </biosimulations-dropdown-menu-item>
-
-        <biosimulations-dropdown-menu-item
-          heading="Charts"
-          icon="chart"
-          [disabled]="true"
-        >
-        </biosimulations-dropdown-menu-item>
-
-        <biosimulations-dropdown-menu-item
-          heading="Visualizations"
-          icon="visualization"
-          [disabled]="true"
-        >
-        </biosimulations-dropdown-menu-item>
-
-        <mat-divider></mat-divider>
-
-        <biosimulations-dropdown-menu-item
-          heading="Profile"
-          icon="user"
-          [disabled]="true"
-        >
-        </biosimulations-dropdown-menu-item>
-
-        <biosimulations-dropdown-menu-item
-          heading="Logout"
-          icon="logout"
-          (click)="logout()"
-        >
-        </biosimulations-dropdown-menu-item>
-      </ng-container>
-    </biosimulations-hover-open-menu>
   </biosimulations-topbar-menu>
 
   <ng-container id="sidenav-menu">
-    <biosimulations-navigation-item
-      heading="Projects"
-      icon="project"
-      [disabled]="true"
-    >
+    <biosimulations-navigation-item heading="Projects" icon="project">
       <biosimulations-navigation-subitem
         heading="Home"
         icon="home"
-        [disabled]="true"
+        [route]="['/projects']"
       >
       </biosimulations-navigation-subitem>
       <biosimulations-navigation-subitem
         heading="Browse"
         icon="browse"
-        [disabled]="true"
+        [route]="['/projects', 'browse']"
       >
       </biosimulations-navigation-subitem>
       <biosimulations-navigation-subitem
         heading="Submit"
         icon="new"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-    </biosimulations-navigation-item>
-
-    <biosimulations-navigation-item heading="Models" icon="model">
-      <biosimulations-navigation-subitem
-        heading="Home"
-        icon="home"
-        [route]="['/models']"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Browse"
-        icon="browse"
-        [route]="['/models', 'browse']"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Submit"
-        icon="new"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-    </biosimulations-navigation-item>
-
-    <biosimulations-navigation-item
-      heading="Simulations"
-      icon="simulation"
-      [disabled]="true"
-    >
-      <biosimulations-navigation-subitem
-        heading="Home"
-        icon="home"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Browse"
-        icon="browse"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Submit"
-        icon="new"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-    </biosimulations-navigation-item>
-
-    <biosimulations-navigation-item
-      heading="Charts"
-      icon="chart"
-      [disabled]="true"
-    >
-      <biosimulations-navigation-subitem
-        heading="Home"
-        icon="home"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Browse"
-        icon="browse"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Submit"
-        icon="new"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-    </biosimulations-navigation-item>
-
-    <biosimulations-navigation-item
-      heading="Visualizations"
-      icon="visualization"
-      [aboveDivider]="true"
-      [disabled]="true"
-    >
-      <biosimulations-navigation-subitem
-        heading="Home"
-        icon="home"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Browse"
-        icon="browse"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Submit"
-        icon="new"
-        [disabled]="true"
+        [route]="['/projects', 'new']"
       >
       </biosimulations-navigation-subitem>
     </biosimulations-navigation-item>
@@ -316,67 +115,9 @@
       >
       </biosimulations-navigation-subitem>
     </biosimulations-navigation-item>
-
-    <biosimulations-navigation-item
-      heading="Login"
-      icon="login"
-      *ngIf="(isAuthenticated() | async) !== true"
-      (click)="login()"
-    >
-    </biosimulations-navigation-item>
-
-    <biosimulations-navigation-item
-      heading="Account"
-      icon="user"
-      *ngIf="isAuthenticated() | async"
-    >
-      <biosimulations-navigation-subitem
-        heading="Projects"
-        icon="project"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Models"
-        icon="model"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Simulation"
-        icon="simulation"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Charts"
-        icon="chart"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Visualization"
-        icon="visualization"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <mat-divider></mat-divider>
-      <biosimulations-navigation-subitem
-        heading="Profile"
-        icon="user"
-        [disabled]="true"
-      >
-      </biosimulations-navigation-subitem>
-      <biosimulations-navigation-subitem
-        heading="Logout"
-        icon="logout"
-        (click)="logout()"
-      >
-      </biosimulations-navigation-subitem>
-    </biosimulations-navigation-item>
   </ng-container>
 
-  <ng-container id="news"> </ng-container>
+  <ng-container id="news"> Under Construction </ng-container>
 
   <router-outlet></router-outlet>
 </biosimulations-navigation>
